@@ -50,6 +50,12 @@ export function SubmissionList({ typeId, groupId, state }: Props) {
     }
   }
 
+  /** Reload the list and the group counts (tab badges). */
+  function refresh() {
+    td.reloadGroups()
+    void load(true)
+  }
+
   useEffect(() => {
     void load(true)
     return () => {
@@ -67,20 +73,22 @@ export function SubmissionList({ typeId, groupId, state }: Props) {
       )}
       {td.groupsError && <Notice kind="warn">Group details could not be loaded ({td.groupsError}); plugin views may lack group options.</Notice>}
       {error && <ErrorBox message={error} onRetry={() => load(items.length === 0, items.length === 0 ? null : cursor)} />}
+      {ready && (
+        <div class="list-bar">
+          <span class="hint">
+            {items.length > 0 && `Showing ${items.length} submission${items.length === 1 ? '' : 's'}, newest first`}
+          </span>
+          <button type="button" class="btn btn-small" onClick={refresh} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+      )}
       {!ready || (loading && items.length === 0) ? (
         <Skeleton lines={6} height="1.2em" />
       ) : items.length === 0 && !error ? (
         <Empty>No {state} submissions{groupId ? ' in this group' : ''}.</Empty>
       ) : (
         <>
-          <div class="list-bar">
-            <span class="hint">
-              Showing {items.length} submission{items.length === 1 ? '' : 's'}, newest first
-            </span>
-            <button type="button" class="btn btn-small" onClick={() => load(true)} disabled={loading}>
-              Refresh
-            </button>
-          </div>
           {items.map((it) => (
             <SubmissionCard
               key={it.id}
