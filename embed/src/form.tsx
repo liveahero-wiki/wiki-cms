@@ -225,7 +225,11 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
     if (!doneRef.current && !isPristine(vRef.current) && !window.confirm(t(L, 'form.closeConfirm'))) return
     close()
   }
-  useEffect(() => setClose(requestClose), [])
+  useEffect(() => {
+    // Braces matter: `setClose` returns the fn it stored, which useEffect would run as the unmount
+    // cleanup, i.e. a second confirm() right after the dialog closed.
+    setClose(requestClose)
+  }, [])
 
   // Persist the unsent draft (debounced) and flush it when the dialog goes away.
   useEffect(() => {
