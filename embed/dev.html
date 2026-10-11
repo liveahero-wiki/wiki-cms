@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>wiki-cms embed dev page</title>
+  <style>
+        body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 900px; padding: 0 16px 6rem; background: #fff; color: #222; }
+    [data-theme='dark'] body { background: #14161a; color: #ddd; }
+    [data-theme='dark'] { color-scheme: dark; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme='light']) body { background: #14161a; color: #ddd; } }
+    .bar { position: sticky; top: 0; z-index: 5; display: flex; gap: .5rem; flex-wrap: wrap; padding: .5rem 0; background: inherit; border-bottom: 1px solid #8884; }
+    .bar button, .bar select { min-height: 36px; font: inherit; }
+    .spacer { height: 160vh; display: grid; place-items: center; color: #888; border: 1px dashed #8886; margin: 1rem 0; }
+    h2 { margin-top: 2rem; }
+    .panel[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <label>UI language
+      <select id="lang">
+        <option value="">(auto)</option>
+        <option>en</option><option>zh-Hans</option><option>zh-Hant</option><option>ja</option>
+      </select>
+    </label>
+    <button id="dark" type="button">Toggle dark mode</button>
+    <button id="tab" type="button">Toggle hidden panel</button>
+    <button id="rescan" type="button">Add embed dynamically</button>
+  </div>
+
+  <h1>Embed dev page</h1>
+  <p>Open the network panel: only <code>v1.js</code> should load until a section nears the viewport.</p>
+
+  <h2>1. Normal group, supports a support slot (same origin API, no <code>data-cms-api</code>)</h2>
+  <div id="e1" class="cms-submissions" data-cms-type="lah-team-formation" data-cms-group="quest-1272003" data-cms-plugin="/dev-plugin.js"></div>
+
+  <div class="spacer">scroll spacer (lazy loading)</div>
+
+  <h2>2. Known empty group, no support (explicit <code>data-cms-api</code>)</h2>
+  <div id="e2" data-cms-api="http://localhost:8788" data-cms-type="lah-team-formation" data-cms-group="quest-1272004" data-cms-plugin="/dev-plugin.js"></div>
+
+  <h2>3. Unknown group (empty blob; POST returns unknown_group)</h2>
+  <div id="e3" data-cms-type="lah-team-formation" data-cms-group="quest-9999999" data-cms-plugin="/dev-plugin.js"></div>
+
+  <h2>4. Inside a hidden panel (loads only once shown) + broken plugin URL</h2>
+  <div class="panel" id="panel" hidden>
+    <div id="e4" data-cms-type="lah-team-formation" data-cms-group="quest-1272003" data-cms-plugin="/does-not-exist.js"></div>
+  </div>
+  <div id="dyn"></div>
+
+  <script type="module" src="/embed/v1.js"></script>
+  <script type="module" src="/embed/v1.js"></script><!-- included twice on purpose: global guard -->
+  <script>
+    const root = document.documentElement
+    document.getElementById('lang').onchange = (e) => {
+      const v = e.target.value
+      for (const el of document.querySelectorAll('[data-cms-type]')) {
+        if (v) el.setAttribute('data-cms-lang', v); else el.removeAttribute('data-cms-lang')
+        el.dispatchEvent(new CustomEvent('cms:lang', { detail: v || undefined }))
+      }
+    }
+    document.getElementById('dark').onclick = () => {
+      root.setAttribute('data-theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark')
+    }
+    document.getElementById('tab').onclick = () => { const p = document.getElementById('panel'); p.hidden = !p.hidden }
+    document.getElementById('rescan').onclick = () => {
+      const d = document.createElement('div')
+      d.setAttribute('data-cms-type', 'lah-team-formation')
+      d.setAttribute('data-cms-group', 'quest-1272003')
+      d.setAttribute('data-cms-plugin', '/dev-plugin.js')
+      document.getElementById('dyn').appendChild(d)
+      window.cmsEmbed?.()
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+import { env } from 'cloudflare:workers'
+import { vi, type Mock } from 'vitest'
+import type { Purger } from '../src/core/cache.ts'
+import { createApp } from '../src/core/app.ts'
+import { clearGroupCaches } from '../src/core/groups.ts'
+import { clearTypeCache } from '../src/core/types-runtime.ts'
+import type { Deps } from '../src/core/http.ts'
+
+export const TYPE = 'lah-team-formation'
+export const ORIGIN = 'http://localhost:8080'
+export const GROUPS_URL = 'https://wiki.test/api/cms-groups.json'
+
+export const REGISTRY = {
+  groups: {
+    'quest-1': { title: 'Event › SS', url: '/e/#team-quest-1', options: { support: false } },
+    'quest-2': { title: 'Event › S', url: '/e/#team-quest-2' },
+    'hero-10251': {
+      title: 'Andrew – Hero',
+      url: '/charas/andrew/#team-hero-10251',
+      options: { support: true, focus: { kind: 'hero', stockId: 10251 } },
+    },
+  },
+}
+
+export interface Harness {
+  purge: Mock<Purger>
+  app: ReturnType<typeof createApp>
+  fetch(path: string, init?: RequestInit): Promise<Response>
+  /** Awaits everything passed to ctx.waitUntil so far. */
+  settle(): Promise<void>
+}
+
+export const ALLOW_ALL = { limit: async () => ({ success: true }) }
+
+export function makeHarness(over: Partial<Deps> = {}, envOver: Record<string, unknown> = {}): Harness {
+  const purge = vi.fn<Purger>(async () => ({ success: true, errors: [] }))
+  const app = createApp({ purge, ...over })
+  const pending: Promise<unknown>[] = []
+  const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {}, props: {} } as unknown as ExecutionContext
+  return {
+    purge,
+    app,
+    settle: async () => void (await Promise.allSettled(pending.splice(0))),
+    fetch: (path, init) => Promise.resolve(app.fetch(new Request('http://localhost:8787' + path, init), { ...env, SUBMIT_LIMITER: ALLOW_ALL, ...envOver } as typeof env, ctx)),
+  }
+}
+
+/** Reset D1/KV state and module caches, then (re)seed the type row and stub outbound fetch. */
+export async function resetState(opts: { turnstile?: boolean; registry?: unknown } = {}) {
+  clearGroupCaches()
+  clearTypeCache()
+  for (const t of ['submission_tab', 'moderator_permission_tab', 'invite_tab', 'ip_block_tab', 'audit_log_tab', 'session_tab', 'account_tab', 'verification_tab', 'user_tab', 'submission_type_tab']) {
+    await env.DB.prepare(`DELETE FROM ${t}`).run()
+  }
+  const keys = await env.KV.list()
+  for (const k of keys.keys) await env.KV.delete(k.name)
+  await env.DB.prepare(
+    'INSERT INTO submission_type_tab (id,name,enabled,allowed_origins,plugin_url,groups_url,created_at) VALUES (?,?,?,?,?,?,?)',
+  )
+    .bind(TYPE, 'LAH team formation', 1, JSON.stringify([ORIGIN]), `${ORIGIN}/assets/cms/p.js`, GROUPS_URL, 1)
+    .run()
+  const turnstileOk = opts.turnstile ?? true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url === GROUPS_URL) return new Response(JSON.stringify(opts.registry ?? REGISTRY), { headers: { 'content-type': 'application/json' } })
+      if (url.startsWith('https://challenges.cloudflare.com/')) {
+        return new Response(JSON.stringify({ success: turnstileOk }))
+      }
+      return new Response('not found', { status: 404 })
+    }),
+  )
+}
+
+export const goodTeam = (extra: Record<string, unknown> = {}) => ({
+  v: 1,
+  supportIndex: null,
+  heroes: [{ stockId: 10011 }, { stockId: 10021 }],
+  ...extra,
+})
+
+export function submitBody(over: Record<string, unknown> = {}) {
+  return {
+    payload: goodTeam(),
+    tags: { rng: 'none' },
+    lang: 'en',
+    explanation: '## Overview\nWorks.',
+    demoUrl: 'https://youtu.be/abc',
+    turnstileToken: 'tok',
+    website: '',
+    ...over,
+  }
+}
+
+export function post(h: Harness, group: string, body: unknown, headers: Record<string, string> = {}) {
+  return h.fetch(`/api/v1/submissions/${TYPE}/${group}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.9', ...headers },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function rows(where = '1=1') {
+  const r = await env.DB.prepare(`SELECT * FROM submission_tab WHERE ${where} ORDER BY created_at`).all<Record<string, unknown>>()
+  return r.results
+}

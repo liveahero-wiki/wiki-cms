@@ -1,0 +1,52 @@
+{
+  "name": "wiki-cms",
+  "version": "0.1.0",
+  "description": "Community submissions CMS (Cloudflare Worker)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "vite build -c admin/vite.config.ts && vite build -c embed/vite.config.ts",
+    "deploy": "pnpm build && wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply wiki_cms_db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply wiki_cms_db --remote",
+    "cms": "node cli/cms.ts",
+    "dev:admin": "vite -c admin/vite.config.ts",
+    "dev:embed": "vite build -c embed/vite.config.ts --watch",
+    "build:admin": "vite build -c admin/vite.config.ts",
+    "build:embed": "vite build -c embed/vite.config.ts"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.11.2",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.11.2",
+  "type": "module",
+  "dependencies": {
+    "better-auth": "^1.7.6",
+    "drizzle-orm": "^0.45.3",
+    "hono": "^4.13.9",
+    "markdown-it": "^15.0.2",
+    "preact": "10.29.8",
+    "valibot": "^1.5.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260927.1",
+    "@preact/preset-vite": "^2.10.6",
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^26.6.3",
+    "@vitest/runner": "^4.1.11",
+    "@vitest/snapshot": "^4.1.11",
+    "drizzle-kit": "^0.31.11",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.141.0"
+  },
+  "private": true
+}
