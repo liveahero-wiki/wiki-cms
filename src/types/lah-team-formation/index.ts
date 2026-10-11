@@ -91,7 +91,7 @@ export const lahTeamFormation: SubmissionTypeDef<TeamPayload> = {
     template: { en: TEMPLATE_EN, ja: TEMPLATE_JA, 'zh-Hans': TEMPLATE_ZH_HANS, 'zh-Hant': TEMPLATE_ZH_HANT },
   },
   demoUrl: {
-    required: true,
+    required: false,
     allowedHosts: [
       'youtube.com',
       'www.youtube.com',

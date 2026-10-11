@@ -55,8 +55,12 @@ describe('demo url', () => {
     expect(ok('https://x.com/u/status/1?s=20&t=abc')).toBe('https://x.com/u/status/1')
     expect(ok('https://bsky.app/profile/a/post/b')).toBe('https://bsky.app/profile/a/post/b')
   })
+  it('allows an empty link when optional', () => {
+    expect(ok('')).toBe('')
+    expect(ok('   ')).toBe('')
+    expect(normalizeDemoUrl('', { ...opts, required: true }).ok).toBe(false)
+  })
   it('rejects bad input', () => {
-    expect(ok('')).toBe('ERR:demo_required')
     expect(ok('http://youtu.be/abc')).toBe('ERR:demo_https')
     expect(ok('https://evil.com/abc')).toBe('ERR:demo_host')
     expect(ok('https://youtu.be.evil.com/abc')).toBe('ERR:demo_host')
