@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { resolve } from 'node:path'
 import preact from '@preact/preset-vite'
 import { defineConfig, type Plugin } from 'vite'
 
@@ -12,12 +13,24 @@ const devAssets = (): Plugin => ({
   },
 })
 
-// Admin SPA: served at the Worker root. Build order matters: this one empties dist/public,
-// the embed build (embed/vite.config.ts) then writes dist/public/embed.
+// Empties dist/public except embed/ (owned by the embed build). If the embed output were wiped, a deploy would serve
+// the SPA fallback (admin index.html, 200) for /embed/v1.js.
+const cleanOutDir = (): Plugin => ({
+  name: 'cms-clean-out-dir',
+  buildStart() {
+    const out = resolve(import.meta.dirname, '../dist/public')
+    if (!existsSync(out)) return
+    for (const name of readdirSync(out, { withFileTypes: true }).map((d) => d.name)) {
+      if (name !== 'embed') rmSync(resolve(out, name), { recursive: true, force: true })
+    }
+  },
+})
+
+// Admin SPA: served at the Worker root. Independent of the embed build (embed/vite.config.ts writes dist/public/embed).
 export default defineConfig({
   root: import.meta.dirname,
   publicDir: '../public',
-  plugins: [preact(), devAssets()],
-  build: { outDir: '../dist/public', emptyOutDir: true, target: 'es2022' },
+  plugins: [preact(), cleanOutDir(), devAssets()],
+  build: { outDir: '../dist/public', emptyOutDir: false, target: 'es2022' },
   server: { port: 5173, proxy: { '/api': 'http://localhost:8787' } },
 })

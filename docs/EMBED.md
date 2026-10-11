@@ -89,7 +89,7 @@ Fields: team formation (plugin editor), every tag of the type (radio group, requ
 ## Local development
 
 ```bash
-pnpm build:embed          # writes dist/public/embed (do not run the admin build in parallel: it empties dist/public)
+pnpm build:embed          # writes dist/public/embed (only touches dist/public/embed)
 node embed/dev-server.mjs # http://localhost:8788/  (mock API + dev page + dev plugin + built embed)
 ```
 

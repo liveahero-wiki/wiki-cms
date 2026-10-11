@@ -5,7 +5,7 @@ The admin SPA lives in `admin/` (Preact + Vite) and is served at `/` by the Work
 ## Build / typecheck
 
 ```sh
-pnpm build:admin            # writes dist/public (empties it, including dist/public/embed: run pnpm build:embed afterwards)
+pnpm build:admin            # writes dist/public (leaves dist/public/embed untouched)
 pnpm exec tsc --noEmit
 ```
 
