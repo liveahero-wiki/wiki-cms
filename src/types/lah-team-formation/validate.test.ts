@@ -28,9 +28,9 @@ describe('payload basics', () => {
     expect(codes(validateTeamPayload({ v: 1, supportIndex: 0, heroes: six }, group()))).toContain('heroes_length')
   })
   it('range checks numbers (engrave default 0, up to 1000)', () => {
-    const ok = validateTeamPayload({ v: 1, heroes: [slot(1, { lv: 60, plv: 1000, fans: 1000, engrave: 1000 })] }, group({ support: false }))
+    const ok = validateTeamPayload({ v: 1, heroes: [slot(1, { lv: 60, plv: 100, fans: 1000, engrave: 1000 })] }, group({ support: false }))
     expect(ok.ok).toBe(true)
-    for (const bad of [{ lv: 0 }, { lv: 61 }, { plv: 1001 }, { fans: -1 }, { engrave: 1.5 }, { engrave: 1001 }]) {
+    for (const bad of [{ lv: 0 }, { lv: 61 }, { plv: 101 }, { fans: -1 }, { engrave: 1.5 }, { engrave: 1001 }]) {
       const r = validateTeamPayload({ v: 1, heroes: [slot(1, bad as Partial<TeamSlot>)] }, group({ support: false }))
       expect(codes(r)).toContain('int_range')
     }
