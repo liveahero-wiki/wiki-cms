@@ -106,7 +106,27 @@ If caching does not work on `workers.dev`, the design still works: every request
 Budget note: with Workers Cache enabled every request to the Worker origin (including static assets) counts toward the 100k requests/day free limit.
 Embed chunks are `immutable` and `v1.js` is browser-cached for 5 minutes; re-check Cloudflare's pricing page if traffic grows.
 
-## 5. Optional: AI moderation (Workers AI, free tier ≈ 10k neurons/day)
+## 5. Optional: Discord notifications for new submissions
+
+Each submission type can post a short message to a Discord webhook (optionally into a thread) whenever a new submission is waiting for review,
+so moderators don't have to keep refreshing the queue. The message contains only the type, group title, pending count and a link to
+`<PUBLIC_URL>/t/<type>/g/<group>`; it never contains user-submitted text and cannot ping anyone.
+
+```bash
+node cli/cms.ts type update lah-team-formation --remote \
+  --discord-webhook https://discord.com/api/webhooks/<id>/<token> \
+  --discord-thread <thread-id> \
+  --webhook-per-hour 10           # default 10
+node cli/cms.ts type update lah-team-formation --remote --discord-webhook none   # turn it off
+```
+
+- The webhook URL is a secret (anyone holding it can post to the channel). It is stored in D1 on the type row, is never returned by any API, is not
+  printed by `cms type list` (which only shows `discord_webhook`: 0/1) and is not written to the audit log (only the column name is).
+- Best-effort: sent from `ctx.waitUntil` after the submission is stored; failures and timeouts (3 s) are ignored. Once `--webhook-per-hour` messages
+  have been sent in the current one-hour window (counted in D1, no KV writes) further notifications are dropped until the window ends.
+- Config changes can take up to 60 s to be picked up (per-isolate type cache).
+
+## 6. Optional: AI moderation (Workers AI, free tier ≈ 10k neurons/day)
 
 Off by default. To enable, add `"ai": { "binding": "AI" }` to `wrangler.jsonc` (note: `wrangler dev` then talks to the remote AI service and
 needs `wrangler login`) and set the `AI_MODERATION` var:

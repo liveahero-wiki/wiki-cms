@@ -7,6 +7,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
+import { isDiscordThreadId, isDiscordWebhookUrl } from '../src/core/discord-webhook.ts'
 import { hashInviteToken, newInviteToken } from '../src/core/invites.ts'
 import { ipKey } from '../src/core/ip.ts'
 import { sql } from './sql.ts'
@@ -21,6 +22,7 @@ Global flags: --remote (act on the production database; default is --local), --j
 
   cms type add <id> --name <name> --origins <o1,o2> --plugin-url <url> --groups-url <url>
   cms type update <id> [--name] [--origins] [--plugin-url] [--groups-url] [--enable|--disable]
+                       [--discord-webhook <url|none>] [--discord-thread <id|none>] [--webhook-per-hour <n>]
   cms type list
   cms invite create --types <t1,t2> [--base-url <PUBLIC_URL>]
   cms mod list
@@ -96,6 +98,9 @@ async function main(argv: string[]) {
       origins: { type: 'string' },
       'plugin-url': { type: 'string' },
       'groups-url': { type: 'string' },
+      'discord-webhook': { type: 'string' },
+      'discord-thread': { type: 'string' },
+      'webhook-per-hour': { type: 'string' },
       enable: { type: 'boolean', default: false },
       disable: { type: 'boolean', default: false },
       types: { type: 'string' },
@@ -129,19 +134,39 @@ async function main(argv: string[]) {
     case 'type update': {
       if (!arg) throw new UsageError('type id required')
       const sets: string[] = []
-      if (values.name) sets.push(sql`name = ${values.name}`)
-      if (values.origins) sets.push(sql`allowed_origins = ${csv(values.origins, '--origins')}`)
-      if (values['plugin-url']) sets.push(sql`plugin_url = ${values['plugin-url']}`)
-      if (values['groups-url']) sets.push(sql`groups_url = ${values['groups-url']}`)
+      const cols: string[] = [] // audited by column name only: the Discord webhook URL is a secret
+      const set = (col: string, expr: string) => {
+        cols.push(col)
+        sets.push(expr)
+      }
+      if (values.name) set('name', sql`name = ${values.name}`)
+      if (values.origins) set('allowed_origins', sql`allowed_origins = ${csv(values.origins, '--origins')}`)
+      if (values['plugin-url']) set('plugin_url', sql`plugin_url = ${values['plugin-url']}`)
+      if (values['groups-url']) set('groups_url', sql`groups_url = ${values['groups-url']}`)
       if (values.enable && values.disable) throw new UsageError('use only one of --enable / --disable')
-      if (values.enable) sets.push('enabled = 1')
-      if (values.disable) sets.push('enabled = 0')
+      if (values.enable) set('enabled', 'enabled = 1')
+      if (values.disable) set('enabled', 'enabled = 0')
+      const hook = values['discord-webhook']
+      if (hook !== undefined) {
+        if (hook !== 'none' && !isDiscordWebhookUrl(hook)) throw new UsageError('--discord-webhook must be https://discord.com/api/webhooks/<id>/<token> (or "none")')
+        set('discord_webhook_url', sql`discord_webhook_url = ${hook === 'none' ? null : hook}`)
+      }
+      const thread = values['discord-thread']
+      if (thread !== undefined) {
+        if (thread !== 'none' && !isDiscordThreadId(thread)) throw new UsageError('--discord-thread must be a numeric thread id (or "none")')
+        set('discord_thread_id', sql`discord_thread_id = ${thread === 'none' ? null : thread}`)
+      }
+      const perHour = values['webhook-per-hour']
+      if (perHour !== undefined) {
+        if (!/^[1-9]d{0,5}$/.test(perHour)) throw new UsageError('--webhook-per-hour must be a positive integer')
+        set('webhook_per_hour', sql`webhook_per_hour = ${Number(perHour)}`)
+      }
       if (!sets.length) throw new UsageError('nothing to update')
-      runSql([`UPDATE submission_type_tab SET ${sets.join(', ')} WHERE id = ${sql`${arg}`}`, auditSql('cli.type_update', arg, arg, { set: sets })], remote)
+      runSql([`UPDATE submission_type_tab SET ${sets.join(', ')} WHERE id = ${sql`${arg}`}`, auditSql('cli.type_update', arg, arg, { set: cols })], remote)
       return console.log(`Updated type ${arg}. Run "cms republish --type ${arg}" so cached configs refresh.`)
     }
     case 'type list':
-      return table(runSql(['SELECT id, name, enabled, allowed_origins, plugin_url, groups_url FROM submission_type_tab ORDER BY id'], remote))
+      return table(runSql(['SELECT id, name, enabled, allowed_origins, plugin_url, groups_url, discord_webhook_url IS NOT NULL AS discord_webhook, discord_thread_id, webhook_per_hour FROM submission_type_tab ORDER BY id'], remote))
 
     case 'invite create': {
       const types = csv(values.types, '--types')

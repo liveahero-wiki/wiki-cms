@@ -45,6 +45,10 @@ export function makeHarness(over: Partial<Deps> = {}, envOver: Record<string, un
   }
 }
 
+/** Calls the fetch stub received for Discord webhooks; `discordStatus.value` = response status (0 = network error). */
+export const discordCalls: { url: string; body: { content: string; allowed_mentions: unknown } }[] = []
+export const discordStatus = { value: 204 }
+
 /** Reset D1/KV state and module caches, then (re)seed the type row and stub outbound fetch. */
 export async function resetState(opts: { turnstile?: boolean; registry?: unknown } = {}) {
   clearGroupCaches()
@@ -60,10 +64,17 @@ export async function resetState(opts: { turnstile?: boolean; registry?: unknown
     .bind(TYPE, 'LAH team formation', 1, JSON.stringify([ORIGIN]), `${ORIGIN}/assets/cms/p.js`, GROUPS_URL, 1)
     .run()
   const turnstileOk = opts.turnstile ?? true
+  discordCalls.length = 0
+  discordStatus.value = 204
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith('https://discord.com/api/webhooks/')) {
+        discordCalls.push({ url, body: JSON.parse(String(init?.body ?? '{}')) })
+        if (discordStatus.value === 0) throw new Error('network down')
+        return new Response(null, { status: discordStatus.value })
+      }
       if (url === GROUPS_URL) return new Response(JSON.stringify(opts.registry ?? REGISTRY), { headers: { 'content-type': 'application/json' } })
       if (url.startsWith('https://challenges.cloudflare.com/')) {
         return new Response(JSON.stringify({ success: turnstileOk }))

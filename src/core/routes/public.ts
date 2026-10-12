@@ -5,6 +5,7 @@ import { getDb } from '../db/client.ts'
 import { ip_block_tab, submission_tab } from '../db/schema.ts'
 import { getGroup, getRoster } from '../groups.ts'
 import { aiModerate } from '../ai-moderation.ts'
+import { notifyNewSubmission } from '../discord-notify.ts'
 import { apiError, sha256Hex, type AppEnv } from '../http.ts'
 import { ipKey } from '../ip.ts'
 import { blobKey, buildBlob, cfgTag, emptyBlob, pubTag } from '../publish.ts'
@@ -213,6 +214,9 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
     c.executionCtx.waitUntil(aiModerate(c.env, id, moderationText, now))
   }
 
-  // 12.
+  // 12. Optional Discord notification for moderators (best-effort, rate limited, never blocks).
+  if (rt.discordWebhookUrl) c.executionCtx.waitUntil(notifyNewSubmission(c.env, rt, typeId, group, pending + 1, now))
+
+  // 13.
   return c.json({ id, state: 'pending' }, 202)
 })

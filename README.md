@@ -14,6 +14,7 @@ A small community-submissions CMS that runs as a single **Cloudflare Worker** on
 - **CLI** (`cli/cms.ts`): register submission types, bootstrap invites, manage moderators and IP blocks, force cache republish.
 - **Cron** (hourly): purges old spam/audit rows/invites/sessions, nulls old raw IPs, refreshes each type's group registry and roster.
 - **Optional AI moderation** via Workers AI (off by default).
+- **Optional Discord notifications**: per submission type, a rate-limited, best-effort webhook message (optionally into a thread) when a new submission is pending ([docs/SETUP.md](docs/SETUP.md) §5).
 
 ### How the wiki fits in
 

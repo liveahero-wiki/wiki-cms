@@ -11,6 +11,10 @@ export interface ResolvedType {
   allowedOrigins: string[]
   pluginUrl: string
   groupsUrl: string
+  /** Secret: never return this from an API or log it. */
+  discordWebhookUrl: string | null
+  discordThreadId: string | null
+  webhookPerHour: number
 }
 
 const TTL_MS = 60_000
@@ -46,6 +50,9 @@ export async function getType(env: Env, id: string, now = Date.now()): Promise<R
         allowedOrigins: parseOrigins(row.allowedOrigins),
         pluginUrl: row.pluginUrl,
         groupsUrl: row.groupsUrl,
+        discordWebhookUrl: row.discordWebhookUrl,
+        discordThreadId: row.discordThreadId,
+        webhookPerHour: row.webhookPerHour,
       }
     }
   }
@@ -68,6 +75,9 @@ export async function listEnabledTypes(env: Env): Promise<{ id: string; resolved
         allowedOrigins: parseOrigins(row.allowedOrigins),
         pluginUrl: row.pluginUrl,
         groupsUrl: row.groupsUrl,
+        discordWebhookUrl: row.discordWebhookUrl,
+        discordThreadId: row.discordThreadId,
+        webhookPerHour: row.webhookPerHour,
       },
     })
   }

@@ -75,6 +75,12 @@ export const submission_type_tab = sqliteTable('submission_type_tab', {
   pluginUrl: text('plugin_url').notNull(),
   groupsUrl: text('groups_url').notNull(),
   createdAt: integer('created_at').notNull(),
+  // Discord notification for new pending submissions. The webhook URL is a secret: never expose it via an API.
+  discordWebhookUrl: text('discord_webhook_url'),
+  discordThreadId: text('discord_thread_id'),
+  webhookPerHour: integer('webhook_per_hour').notNull().default(10),
+  webhookWindowStart: integer('webhook_window_start').notNull().default(0),
+  webhookWindowCount: integer('webhook_window_count').notNull().default(0),
 })
 
 export const submission_tab = sqliteTable(

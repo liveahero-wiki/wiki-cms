@@ -19,3 +19,7 @@ export const GROUP_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 export const TYPE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 export const DAY_MS = 24 * 60 * 60 * 1000
+export const HOUR_MS = 60 * 60 * 1000
+
+/** Default cap on Discord notifications per submission type per hour (override with `cms type update --webhook-per-hour`). */
+export const WEBHOOK_MAX_PER_HOUR_DEFAULT = 10
