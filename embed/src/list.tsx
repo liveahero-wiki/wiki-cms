@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { PublicBlob, TypeConfig } from '../../src/shared/api-types.ts'
 import { pickText } from '../../src/shared/i18n.ts'
 import { Card, Chip, type PluginState } from './cards.tsx'
-import { Catalog } from './catalog.tsx'
 import { t } from './i18n/t.ts'
 import { fetchBlob, fetchConfig, injectStyle, isLang, langFromTag, loadPlugin, makeCtx, resolveUiLang, type Lang, type ListOpts } from './shared.ts'
 
@@ -127,8 +126,6 @@ function App({ host, opts }: { host: HTMLElement; opts: ListOpts }) {
         <span /> <span />
       </div>
     )
-  } else if (opts.layout === 'catalog') {
-    body = <Catalog blob={state.blob} uiLang={uiLang} plugin={plugin} ctx={ctx} />
   } else {
     const items = state.blob.items
     const present = state.blob.meta.langs.filter((l) => items.some((i) => i.lang === l.value))

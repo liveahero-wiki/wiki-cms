@@ -9,7 +9,6 @@ The embed is the generic public UI (disclaimer, submission list, filters, submit
      data-cms-api="https://wiki-cms.<sub>.workers.dev"
      data-cms-type="lah-team-formation"
      data-cms-group="all"
-     data-cms-layout="catalog"
      data-cms-plugin="/assets/cms/lah-team-formation.js"></div>
 <script type="module" src="https://wiki-cms.<sub>.workers.dev/embed/v1.js"></script>
 ```
@@ -20,7 +19,6 @@ The embed is the generic public UI (disclaimer, submission list, filters, submit
 | `data-cms-group` | yes | Group id (opaque to the embed; must exist in the wiki's groups registry for submissions to be accepted). |
 | `data-cms-plugin` | yes | URL of the plugin module, resolved against `document.baseURI`. |
 | `data-cms-api` | no | Worker origin. Defaults to the origin the loader script was served from. |
-| `data-cms-layout` | no | `catalog` renders every item of the group with search, filters and sorting (see [Catalog layout](#catalog-layout)); anything else (default) is the plain paged card list. |
 | `data-cms-lang` | no | UI language override: `en`, `zh-Hans`, `zh-Hant`, `ja` (or a BCP-47 tag such as `ja-JP`, `zh-TW`). |
 
 The `cms-submissions` class is optional (the loader adds it). The page heading belongs to the host page; the embed renders everything below it.
@@ -88,35 +86,33 @@ The submit form is a native `<dialog>` appended inside the host element, so inhe
 
 Every card shows the item's **name** (`title`; types without a name show none, legacy items without one show a muted "Untitled team" placeholder), the plugin summary, tag chips, language, date and the demo link. The explanation is **collapsed completely** behind a "Show explanation" toggle (`aria-expanded`); its HTML is not rendered until it is opened. Names are rendered as text, never as HTML.
 
-## Catalog layout
-
-`data-cms-layout="catalog"` is meant for one big group (the LAH Team Creator page uses the group `all`). It fetches the one cached blob and filters it **in the browser**: filtering never makes a request.
-
-- **Basic row**: a title search box (case-insensitive, NFKC-normalised, every word must occur) and the plugin's `basic` filter part.
-- **Advanced filters** (collapsible, with an active-count badge): one chip group per tag (multi-select, "any of"; nothing selected = all), the content-language filter and the plugin's `advanced` part.
-- **Sort**: newest (default), oldest, plus the plugin's `listFilter.sorts`. Ties are broken by newest first.
-- 20 cards per page with "Show more", a result count and a "Clear filters" button (shown when any filter is active).
-- Pure logic lives in `embed/src/catalog.ts` (unit tested); the UI in `embed/src/catalog.tsx`.
-
-### URL hash state
-
-The filter state is mirrored into the location hash with `history.replaceState` (no history entries; written only after the user changed something) and read on load and on `hashchange`:
-
-| Key | Owner | Meaning |
-|---|---|---|
-| `q` | core | search text |
-| `sort` | core | `oldest` or a plugin sort key (default `newest` is never written) |
-| `lang` | core | content language (`en`, `zh-Hans`, `zh-Hant`, `ja`) |
-| `t.<tagKey>` | core | comma list of selected tag values, e.g. `t.teamType=auto` |
-| anything else | plugin | passed to `listFilter.init`; e.g. the LAH plugin uses `target`, `hero`, `xhero`, `sk`, `xsk`, `tree=0`, `bloom=0`, `lim` |
-
-Unknown tag keys/values and languages are dropped. A wiki page can therefore deep-link, e.g. `/team-creator.html#hero=12641`. The catalog waits for the plugin (`listFilter.prepare()`, e.g. loading the roster) before the first render; if the plugin fails, only the core filters are offered. Errors thrown by plugin filter code are caught, logged once and treated as "matches".
-
-Everything the plugin may add is described in `docs/PLUGIN_API.md` (`listFilter`).
-
 ## Submission form
 
 Fields: the **name** (when the type defines one: label/placeholder from `TypeConfig.title`, counter, plain text, no links), team formation (plugin editor), every tag of the type (radio group, required ones are enforced; a tag's `default` is preselected, the server never fills it in), explanation language (default `en` regardless of UI language, with the "write in English if possible" hint), explanation (Markdown, template prefilled per language, Write/Preview, live counter and policy errors), demo link (https, allowed hosts only), hidden honeypot, privacy note, Turnstile. Server field errors are mapped to inputs by `path` and rendered in the UI language from `code`/`params` (fallback: the server's English `message`). An unsent draft is kept in `localStorage` under `cms-draft:<type>:<group>` (cleared on success). `Esc`/close asks for confirmation when the form has unsent content.
+
+## Opening the submit form from your own UI
+
+A wiki may draw its own list from the public blob (the LAH Team Creator page does: `docs/TEAM_CREATOR_WIKI_UI_PLAN.md`) (`GET /api/v1/submissions/{type}/{group}`; its shape in `src/shared/api-types.ts` is a contract, see `docs/TEAM_CREATOR_WIKI_UI_PLAN.md` W8) and still use this embed's form. `v1.js` sets `window.cmsEmbed.openForm(options)`; `window.cmsEmbed()` is still callable (it re-scans hosts).
+
+```ts
+interface OpenFormOptions {
+  host: HTMLElement          // the dialog is appended inside it; it gets the class `cms-submissions`
+  type: string               // e.g. 'lah-team-formation'
+  group: string
+  plugin: string             // plugin module URL, resolved against document.baseURI (like data-cms-plugin)
+  groupOptions: Record<string, unknown>  // `groupOptions` of the list blob -> ctx.group.options
+  api?: string               // Worker origin; default: the origin v1.js was served from
+  lang?: string              // a Lang or a BCP-47 tag; default: resolved from the host. The open dialog keeps it.
+}
+window.cmsEmbed.openForm(options): Promise<void>
+```
+
+- The promise resolves once the form chunk is loaded and the dialog is shown. It **rejects** (never throws synchronously) on invalid options (`host` not an `HTMLElement`, empty `type`/`group`/`plugin`, `groupOptions` not a plain object) or when the form chunk fails to load; show your own error. A failing type config or plugin is handled inside the dialog.
+- If a dialog is already open in that host, nothing new opens and the promise resolves.
+- Load `v1.js` **lazily**, with `await import(api + '/embed/v1.js')` on the first click, instead of a `<script>` tag: that saves a Worker request per page view, and importing the same URL again returns the same module instance.
+- Do **not** put `data-cms-type` on your own root element: `v1.js` scans `[data-cms-type]` and would take it over.
+- Use a dedicated, empty `host` element that your own UI never re-renders into.
+- When the form opens, the whole embed stylesheet is injected (including the list rules). Class names starting with `cms-` are reserved for the embed; give your own list a different prefix.
 
 ## Local development
 
@@ -125,4 +121,4 @@ pnpm build:embed          # writes dist/public/embed (only touches dist/public/e
 node embed/dev-server.mjs # http://localhost:8788/  (mock API + dev page + dev plugin + built embed)
 ```
 
-The dev page (`embed/dev.html`) has a **catalog host** (group `all`: about 60 fixtures with names, the new tags, targets, some untitled legacy rows, and a `listFilter` stub in `embed/dev-plugin.js`; try `#target=quest-616001&t.teamType=auto`) and hosts for a normal group (27 fixture items in all four languages, long explanations, three demo platforms), an empty group, an unknown group, a hidden panel (lazy loading) and a plugin that fails to load, plus language and dark-mode toggles. Magic explanation text for testing the form: `FAIL` (validation errors with sample fields), `RATE` (429), `CAP` (daily cap), `WEIRD` (unknown error code with an English message). Turnstile uses Cloudflare's always-pass test key `1x00000000000000000000AA`.
+The dev page (`embed/dev.html`) has hosts for a normal group (27 fixture items in all four languages, long explanations, three demo platforms), an empty group, an unknown group, a hidden panel (lazy loading) and a plugin that fails to load, an `openForm` section (buttons for valid and invalid options; its `groupOptions` come from the `all` group fixture), plus language and dark-mode toggles. Magic explanation text for testing the form: `FAIL` (validation errors with sample fields), `RATE` (429), `CAP` (daily cap), `WEIRD` (unknown error code with an English message). Turnstile uses Cloudflare's always-pass test key `1x00000000000000000000AA`.

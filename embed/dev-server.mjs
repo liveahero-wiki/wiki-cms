@@ -16,7 +16,7 @@ const TARGETS = [
   { id: 'quest-617001', label: { en: 'Simulator - Plant-type Kaibutsu (SSS)' } },
   { id: 'rogue-2609', label: { en: 'Unexplored: final boss' }, retired: true },
 ]
-// everything else is "unknown"; `all` is the catalog group, the others are legacy card-list groups
+// everything else is "unknown"; `all` (no items; only its options matter) feeds the openForm dev button, the others are card-list groups
 const GROUPS = { all: { support: 'optional', targets: TARGETS }, 'quest-1272003': { support: true }, 'quest-1272004': { support: false } }
 
 const langs = [
@@ -108,28 +108,6 @@ function makeItems(group) {
   }))
 }
 
-/** ~60 catalog fixtures for the `all` group (targets, optional support, some legacy untitled rows). */
-function makeCatalogItems() {
-  return Array.from({ length: 60 }, (_, i) => {
-    const target = i % 4 === 3 ? undefined : TARGETS[i % TARGETS.length].id
-    return {
-      id: `catalog-${i}`,
-      createdAt: Date.UTC(2026, 9, 11) - i * 86_400_000 * 0.9,
-      title: i % 9 === 8 ? '' : `${NAMES[i % NAMES.length]} #${i + 1}`,
-      lang: langCycle[i % langCycle.length],
-      tags: { teamType: i % 3 === 0 ? 'auto' : 'manual', successRate: rates[i % 3] },
-      demoUrl: i % 2 ? demos[i % 3] : '',
-      explanationHtml: i % 3 === 0 ? longHtml : shortHtml,
-      payload: {
-        v: 1,
-        supportIndex: i % 2 ? 2 : null,
-        ...(target ? { target } : {}),
-        heroes: [10011, 10021, 10031, 10041, 10051].slice(0, 3 + (i % 3)).map((stockId, n) => ({ stockId: stockId + (i % 4) * 100, lv: 60, active: n === 0 ? 10021 : null, passives: [] })),
-      },
-    }
-  })
-}
-
 function blobFor(group) {
   const known = group in GROUPS
   return {
@@ -139,7 +117,7 @@ function blobFor(group) {
     generatedAt: Date.now(),
     groupOptions: known ? GROUPS[group] : {},
     meta: { langs, tags, title: true },
-    items: group === 'quest-1272003' ? makeItems(group) : group === 'all' ? makeCatalogItems() : [],
+    items: group === 'quest-1272003' ? makeItems(group) : [],
   }
 }
 

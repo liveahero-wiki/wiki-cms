@@ -34,76 +34,8 @@ function chips(el, payload, ctx) {
   }
 }
 
-// Stub `listFilter` (see docs/PLUGIN_API.md): target chips + a hero-id text box, and a "most heroes" sort.
-const listFilter = {
-  init: (params) => ({ targets: (params.get('target') ?? '').split(',').filter(Boolean), hero: params.get('hero') ?? '', big: params.get('big') === '1' }),
-  toParams: (s) => ({ ...(s.targets.length ? { target: s.targets.join(',') } : {}), ...(s.hero ? { hero: s.hero } : {}), ...(s.big ? { big: '1' } : {}) }),
-  prepare: () => new Promise((r) => setTimeout(r, 150)),
-  mount(el, part, state, onChange, ctx) {
-    injectCss()
-    let cur = state
-    const wrap = document.createElement('div')
-    wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:.4rem;align-items:center'
-    const targets = ctx.group.options.targets ?? []
-    const buttons = []
-    const input = document.createElement('input')
-    const cb = document.createElement('input')
-    const render = () => {
-      for (const [id, b] of buttons) b.setAttribute('aria-pressed', String(cur.targets.includes(id)))
-      if (document.activeElement !== input) input.value = cur.hero
-      cb.checked = cur.big
-    }
-    if (part === 'basic') {
-      for (const tg of targets) {
-        const b = document.createElement('button')
-        b.type = 'button'
-        b.className = 'cms-chip cms-chip-btn'
-        b.textContent = tg.label[ctx.uiLang] ?? tg.label.en
-        b.onclick = () => {
-          cur = { ...cur, targets: cur.targets.includes(tg.id) ? cur.targets.filter((x) => x !== tg.id) : [...cur.targets, tg.id] }
-          render()
-          onChange(cur)
-        }
-        buttons.push([tg.id, b])
-        wrap.appendChild(b)
-      }
-      input.type = 'text'
-      input.className = 'cms-input'
-      input.placeholder = 'hero stock id'
-      input.style.width = '9rem'
-      input.oninput = () => {
-        cur = { ...cur, hero: input.value.trim() }
-        onChange(cur)
-      }
-      wrap.appendChild(input)
-    } else {
-      const label = document.createElement('label')
-      cb.type = 'checkbox'
-      cb.onchange = () => {
-        cur = { ...cur, big: cb.checked }
-        onChange(cur)
-      }
-      label.append(cb, ' only teams of 5')
-      wrap.appendChild(label)
-    }
-    el.appendChild(wrap)
-    render()
-    return {
-      update: (s) => {
-        cur = s
-        render()
-      },
-      destroy: () => wrap.remove(),
-    }
-  },
-  test: (p, s) => (!s.targets.length || s.targets.includes(p.target)) && (!s.hero || p.heroes.some((h) => String(h.stockId).includes(s.hero))) && (!s.big || p.heroes.length === 5),
-  activeCount: (s) => (s.big ? 1 : 0),
-  sorts: [{ key: 'heroes', label: () => 'Most heroes', compare: (a, b) => b.heroes.length - a.heroes.length }],
-}
-
 const plugin = {
   apiVersion: 1,
-  listFilter,
   type: 'lah-team-formation',
   defaultPayload: () => ({ v: 1, supportIndex: null, heroes: [{ stockId: 10011 }] }),
 

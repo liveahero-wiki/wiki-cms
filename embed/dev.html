@@ -43,14 +43,19 @@
   <h2>3. Unknown group (empty blob; POST returns unknown_group)</h2>
   <div id="e3" data-cms-type="lah-team-formation" data-cms-group="quest-9999999" data-cms-plugin="/dev-plugin.js"></div>
 
-  <h2>3b. Catalog layout (<code>data-cms-layout="catalog"</code>, group <code>all</code>, ~60 fixtures, plugin <code>listFilter</code> stub; try <a href="#target=quest-616001&amp;t.teamType=auto">#target=quest-616001&amp;t.teamType=auto</a>)</h2>
-  <div id="e5" data-cms-type="lah-team-formation" data-cms-group="all" data-cms-layout="catalog" data-cms-plugin="/dev-plugin.js"></div>
-
   <h2>4. Inside a hidden panel (loads only once shown) + broken plugin URL</h2>
   <div class="panel" id="panel" hidden>
     <div id="e4" data-cms-type="lah-team-formation" data-cms-group="quest-1272003" data-cms-plugin="/does-not-exist.js"></div>
   </div>
   <div id="dyn"></div>
+
+  <h2>5. <code>openForm</code> from host UI (no <code>data-cms-type</code> on the root)</h2>
+  <p>
+    <button id="of-open" type="button">Open submit form</button>
+    <button id="of-bad" type="button">Call with invalid options</button>
+  </p>
+  <p id="of-out" role="status"></p>
+  <div id="of-host"></div>
 
   <script type="module" src="/embed/v1.js"></script>
   <script type="module" src="/embed/v1.js"></script><!-- included twice on purpose: global guard -->
@@ -74,6 +79,21 @@
       d.setAttribute('data-cms-plugin', '/dev-plugin.js')
       document.getElementById('dyn').appendChild(d)
       window.cmsEmbed?.()
+    }
+    // openForm from host UI: groupOptions come from the `all` blob, like the wiki's Team Creator app.
+    const ofOut = document.getElementById('of-out')
+    document.getElementById('of-open').onclick = async () => {
+      ofOut.textContent = ''
+      try {
+        const blob = await (await fetch('/api/v1/submissions/lah-team-formation/all')).json()
+        const lang = document.getElementById('lang').value || undefined
+        await window.cmsEmbed.openForm({ host: document.getElementById('of-host'), type: 'lah-team-formation', group: 'all', plugin: '/dev-plugin.js', groupOptions: blob.groupOptions, lang })
+      } catch (e) { ofOut.textContent = 'rejected: ' + e.message }
+    }
+    document.getElementById('of-bad').onclick = async () => {
+      ofOut.textContent = ''
+      try { await window.cmsEmbed.openForm({ host: document.getElementById('of-host'), type: '', group: 'all', plugin: '/dev-plugin.js', groupOptions: {} }) }
+      catch (e) { ofOut.textContent = 'rejected: ' + e.message }
     }
   </script>
 </body>

@@ -59,22 +59,6 @@ All mount functions are framework-agnostic: DOM element in, cleanup out. The hos
   - `EditorHandle.setErrors(errors)`: render the given errors inline (replace any previous ones). `[]` clears them. The form calls it with the `payload` / `payload.*` entries of the server's `validation_failed.error.fields`, and clears it when the user edits the team again.
 - The editor should be usable at 360 px width, keyboard accessible, and must not trap the `Esc` key of the surrounding `<dialog>` (nested dialogs of your own may handle `Esc` themselves).
 
-## Optional: `listFilter` (catalog layout)
-
-A plugin may add game-specific filters and sorts to the embed's `catalog` layout (`data-cms-layout="catalog"`, `docs/EMBED.md`) by exporting `listFilter` (`ListFilter<P, S>` in `src/shared/plugin-api.ts`). It is optional and backward compatible (`apiVersion` stays 1): without it only the core filters (title search, tags, language, sort) are offered. The core treats the state `S` as opaque.
-
-| Member | Contract |
-|---|---|
-| `init(params, ctx): S` | Initial state from the hash params the plugin owns (the core reserves `q`, `sort`, `lang` and `t.*`). Called after `prepare()`, on `hashchange`, and with empty params for "Clear filters". |
-| `toParams(state)` | The **non-default** values as hash params. An empty result means "no plugin filter is active" (the core uses that to show "Clear filters"). |
-| `prepare?()` | Awaited once before the first filtering (load the roster here). A rejection is logged and ignored. |
-| `mount(el, part, state, onChange, ctx)` | Render the controls of `'basic'` (next to the search box, always visible) or `'advanced'` (inside the collapsible panel; mounted even while collapsed) into `el`. Returns `{ update(state), destroy() }`. `update` is called on every state change, including the echo of your own `onChange` and "Clear filters": keep it idempotent and never call `onChange` from it. Both parts are destroyed and remounted when the UI language (`ctx.uiLang`) changes. |
-| `test(payload, state)` | Pure and cheap; the payload is the published, server-validated JSON. |
-| `activeCount(state)` | Active filters of the **advanced** part only (badge on the core's "Advanced filters" toggle). |
-| `sorts?` | `{ key, label(lang), compare(a, b) }[]` over payloads. The key is written as `sort=<key>`. Ties are broken by newest first. |
-
-Errors thrown by `init`, `test`, `compare`, `toParams` or `activeCount` are caught: the item counts as matching, and the error is logged once. The core stylesheet's generic classes (`cms-chip`, `cms-chip-btn` + `cms-active` with `aria-pressed`, `cms-btn`, `cms-input`, `cms-label`, `cms-hint`) and theme variables may be reused inside your parts; the LAH plugin ships its own self-contained `cms-lah-*` styles instead.
-
 ## Type-specific group options (LAH `targets`)
 
 The wiki's registry (`/api/cms-groups.json`) gives each group a free-form `options` object that the core passes untouched to the validator, the plugin and the blob (`groupOptions`). The LAH Team Creator uses one group, `all`:

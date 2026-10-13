@@ -1,4 +1,4 @@
-// Cards shared by the list and catalog layouts.
+// Card pieces of the embed's list (split out of list.tsx).
 import type { ComponentChildren } from 'preact'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { PublicBlob, PublicItem, TagDefDto } from '../../src/shared/api-types.ts'
