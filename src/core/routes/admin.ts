@@ -36,6 +36,7 @@ function toAdminRow(r: SubmissionRow) {
     groupId: r.groupId,
     state: r.state,
     version: r.version,
+    title: r.title,
     payload: JSON.parse(r.payload),
     tags: JSON.parse(r.tags),
     lang: r.lang,
@@ -205,6 +206,7 @@ adminRoutes.patch('/submissions/:id', mod, async (c) => {
   const merged = {
     payload: body.payload !== undefined ? body.payload : JSON.parse(row.payload),
     tags: body.tags !== undefined ? body.tags : JSON.parse(row.tags),
+    title: body.title !== undefined ? body.title : row.title,
     lang: body.lang !== undefined ? body.lang : row.lang,
     explanation: body.explanation !== undefined ? body.explanation : row.explanation,
     demoUrl: body.demoUrl !== undefined ? body.demoUrl : row.demoUrl,
@@ -216,12 +218,13 @@ adminRoutes.patch('/submissions/:id', mod, async (c) => {
   const next = {
     payload: JSON.stringify(v.value.payload),
     tags: JSON.stringify(v.value.tags),
+    title: v.value.title,
     lang: v.value.lang,
     explanation: v.value.explanation,
     demoUrl: v.value.demoUrl,
     groupId: targetGroupId,
   }
-  const before = { payload: row.payload, tags: row.tags, lang: row.lang, explanation: row.explanation, demoUrl: row.demoUrl, groupId: row.groupId }
+  const before = { payload: row.payload, tags: row.tags, title: row.title, lang: row.lang, explanation: row.explanation, demoUrl: row.demoUrl, groupId: row.groupId }
   const changed = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== before[k])
   if (changed.length === 0) return c.json({ item: toAdminRow(row), purgeWarning: null })
 

@@ -999,3 +999,10 @@ fieldset[aria-invalid='true'] {
     animation: none;
   }
 }
+
+.card-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}

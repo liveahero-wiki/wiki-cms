@@ -30,6 +30,10 @@ The built admin's CSP (`public/_headers`) only allows `'self'` and the wiki orig
 
 A plugin that cannot be loaded or that throws degrades to a raw JSON view (and a JSON editor in the edit dialog) while the rest of the portal keeps working.
 
+## Names (titles)
+
+Types that define a name (`SubmissionTypeDef.title`) show it on every card; legacy items without one get an "Untitled" warning badge and an **"Untitled only"** checkbox on the list filters them (client-side, over the loaded page). The edit dialog has a name input (4–50 characters for LAH, plain text, no links; server errors map to the input). A legacy untitled item needs a name before it can be edited, which is how moderators backfill them. The "original" view shows the pre-edit name and tolerates tag keys that no longer exist (it prints `key: value`).
+
 ## Notes for plugin authors
 
 - `ctx = { uiLang: 'en', theme, group: { id, options } }`; `options` comes from the groups registry (`AdminGroup.options`) of the submission's group (of the chosen group in the edit dialog; the editor is re-mounted with the current value when the group changes).

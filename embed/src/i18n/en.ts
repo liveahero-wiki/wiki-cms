@@ -17,9 +17,19 @@ export const en = {
   'card.submitted': 'Submitted {date}',
   'card.demo': 'Demo on {platform}',
   'card.demoGeneric': 'Demo link',
-  'card.showFull': 'Show full explanation',
-  'card.showLess': 'Show less',
   'card.detailsUnavailable': 'Team details unavailable',
+  'card.untitled': 'Untitled team',
+  'card.showExplanation': 'Show explanation',
+  'card.hideExplanation': 'Hide explanation',
+  'catalog.search': 'Search team names',
+  'catalog.advanced': 'Advanced filters',
+  'catalog.activeCount': '{count} active',
+  'catalog.sort': 'Sort by',
+  'catalog.sort.newest': 'Newest first',
+  'catalog.sort.oldest': 'Oldest first',
+  'catalog.results': 'Showing {shown} of {count}',
+  'catalog.clear': 'Clear filters',
+  'catalog.noMatch': 'No team matches these filters.',
 
   'form.title': 'Submit a team formation',
   'form.close': 'Close',
@@ -52,6 +62,7 @@ export const en = {
   'form.closeConfirm': 'Close this form? Your draft is saved in this browser and will be here next time.',
   'form.success': 'Thanks! Your submission will appear after a moderator approves it.',
   'form.done': 'Done',
+  'form.titleHint': 'Plain text, {min}–{max} characters, no links.',
 
   // Field error codes (submission-validate.ts; payload.* codes are rendered by the plugin)
   'err.lang_invalid': 'Please choose a supported language.',
@@ -68,6 +79,11 @@ export const en = {
   'err.demo_host': 'The demo link must be a YouTube, X (Twitter) or Bluesky link.',
   'err.payload_invalid': 'The team formation is incomplete or invalid.',
   'err.payload_too_large': 'The team formation is too large.',
+  'err.title_required': 'Please enter a name.',
+  'err.title_too_short': 'The name must be at least {min} characters.',
+  'err.title_too_long': 'The name must be at most {max} characters.',
+  'err.title_link': 'Links are not allowed in the name.',
+  'err.title_invalid': 'The name contains invalid characters.',
 
   // Top-level API error codes
   'api.validation_failed': 'Some fields need attention.',

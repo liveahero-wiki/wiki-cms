@@ -1,9 +1,12 @@
 import MarkdownIt from 'markdown-it'
 import type { FieldError } from './plugin-api.ts'
 
+/** Markdown/URL link syntax; also used by the plain-text title check. */
+export const LINK_RE = /\]\(|^\s{0,3}\[[^\]]+\]:\s*\S|!\[|<[a-z][a-z0-9+.-]*:|\b[a-z][a-z0-9+.-]*:\/\/|\bwww\./im
+
 const FORBIDDEN: { code: string; message: string; re: RegExp }[] = [
   { code: 'md_html', message: 'HTML is not allowed.', re: /<\/?[A-Za-z][^>]*>|<!--|<![A-Za-z]/ },
-  { code: 'md_link', message: 'Links are not allowed — put your video in the Demo link field.', re: /\]\(|^\s{0,3}\[[^\]]+\]:\s*\S|!\[|<[a-z][a-z0-9+.-]*:|\b[a-z][a-z0-9+.-]*:\/\/|\bwww\./im },
+  { code: 'md_link', message: 'Links are not allowed — put your video in the Demo link field.', re: LINK_RE },
 ]
 
 /** Reject HTML, links and images in explanation markdown. */

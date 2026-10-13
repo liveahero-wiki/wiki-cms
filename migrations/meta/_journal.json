@@ -15,6 +15,13 @@
       "when": 1791806853272,
       "tag": "0001_easy_joshua_kane",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791809858620,
+      "tag": "0002_little_sauron",
+      "breakpoints": true
     }
   ]
 }

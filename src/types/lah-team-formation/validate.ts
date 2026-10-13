@@ -14,6 +14,8 @@ export interface TeamSlot {
 export interface TeamPayload {
   v: 1
   supportIndex: number | null
+  /** Id of an entry of the group's `options.targets`; absent = general purpose. */
+  target?: string
   heroes: TeamSlot[]
 }
 
@@ -45,9 +47,54 @@ export function parseFocus(options: Record<string, unknown>): Focus | null {
   return null
 }
 
-/** `support` defaults to true when absent. */
-export function groupAllowsSupport(options: Record<string, unknown>): boolean {
-  return options.support !== false
+export type SupportMode = 'required' | 'optional' | 'none'
+
+/** `support` absent or `true` → required, `false` → none, `'optional'` → optional (a team may or may not borrow one). */
+export function supportMode(options: Record<string, unknown>): SupportMode {
+  if (options.support === false) return 'none'
+  if (options.support === 'optional') return 'optional'
+  return 'required'
+}
+
+export interface Target {
+  id: string
+  label: Partial<Record<'en' | 'zh-Hans' | 'zh-Hant' | 'ja', string>>
+  url?: string
+  retired?: boolean
+}
+
+export const TARGET_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
+const TARGET_LANGS = ['en', 'zh-Hans', 'zh-Hant', 'ja'] as const
+
+/** Targets listed in the group's registry options; malformed or duplicate entries are ignored with a warning. */
+export function parseTargets(options: Record<string, unknown>): Target[] {
+  const raw = options.targets
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) {
+    console.warn('lah-team-formation: ignoring malformed group targets option')
+    return []
+  }
+  const out: Target[] = []
+  const seen = new Set<string>()
+  for (const e of raw) {
+    const label: Target['label'] = {}
+    if (isObj(e) && isObj(e.label)) {
+      for (const l of TARGET_LANGS) {
+        const x = (e.label as Record<string, unknown>)[l]
+        if (typeof x === 'string' && x.trim()) label[l] = x
+      }
+    }
+    if (!isObj(e) || typeof e.id !== 'string' || !TARGET_ID_RE.test(e.id) || seen.has(e.id) || Object.keys(label).length === 0) {
+      console.warn('lah-team-formation: ignoring malformed group target', JSON.stringify(e))
+      continue
+    }
+    seen.add(e.id)
+    const t: Target = { id: e.id, label }
+    if (typeof e.url === 'string') t.url = e.url
+    if (e.retired === true) t.retired = true
+    out.push(t)
+  }
+  return out
 }
 
 function readInt(errors: FieldError[], path: string, v: unknown, def: number, min: number, max: number): number {
@@ -154,15 +201,15 @@ export function validateTeamPayload(
   })
 
   // Group-driven support rule.
-  const allowsSupport = groupAllowsSupport(group.options)
+  const mode = supportMode(group.options)
   const rawSupport = input.supportIndex
   let supportIndex: number | null = null
-  if (!allowsSupport) {
+  if (mode === 'none') {
     if (rawSupport !== undefined && rawSupport !== null) {
       errors.push(err('payload.supportIndex', 'support_not_allowed', 'This team does not allow a borrowed support.'))
     }
   } else if (rawSupport === undefined || rawSupport === null) {
-    errors.push(err('payload.supportIndex', 'support_required', 'Choose which slot is the borrowed support.'))
+    if (mode === 'required') errors.push(err('payload.supportIndex', 'support_required', 'Choose which slot is the borrowed support.'))
   } else if (!isInt(rawSupport) || rawSupport < 0 || rawSupport >= slots.length) {
     errors.push(err('payload.supportIndex', 'support_out_of_range', 'The support slot does not exist.'))
   } else {
@@ -177,6 +224,14 @@ export function validateTeamPayload(
   const actives = counted.flatMap(({ s, i }) => (s.active === null ? [] : [{ slot: i + 1, id: s.active }]))
   for (const d of dupGroups(actives)) {
     errors.push(err('payload.heroes', 'duplicate_active', `Slots ${d.slots.join(', ')} use the same active sidekick.`, { slots: d.slots.join(',') }))
+  }
+
+  // Target (optional; the id must be listed by the group, retired entries stay valid).
+  let target: string | undefined
+  const rawTarget = input.target
+  if (rawTarget !== undefined && rawTarget !== null) {
+    if (typeof rawTarget === 'string' && parseTargets(group.options).some((t) => t.id === rawTarget)) target = rawTarget
+    else errors.push(err('payload.target', 'target_unknown', 'Unknown target.'))
   }
 
   // Focus card (card groups only).
@@ -228,5 +283,5 @@ export function validateTeamPayload(
   }
 
   if (errors.length) return { ok: false, errors }
-  return { ok: true, value: { v: 1, supportIndex, heroes: slots } }
+  return { ok: true, value: { v: 1, supportIndex, ...(target !== undefined ? { target } : {}), heroes: slots } }
 }

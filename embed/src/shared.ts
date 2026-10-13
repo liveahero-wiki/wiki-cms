@@ -13,6 +13,8 @@ export interface ListOpts {
   group: string
   /** `data-cms-plugin` as written (resolved against document.baseURI when imported). */
   plugin: string | null
+  /** `data-cms-layout`: the default card list, or the filterable catalog. */
+  layout: 'list' | 'catalog'
 }
 
 export function injectStyle() {

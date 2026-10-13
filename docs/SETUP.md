@@ -76,6 +76,16 @@ Production origins must be exact (scheme + host, no trailing slash). Add a secon
 plugin from the wiki. If you add a type whose plugin is hosted elsewhere, add that origin to `script-src` and `connect-src` in `public/_headers`
 (for local development against `http://localhost:8080` use the Vite dev server for the admin, or temporarily add the origin).
 
+### Team Creator rollout (one-off)
+
+The move from per-page groups to the single `all` group is described in `docs/TEAM_CREATOR_PLAN.md` ("Rollout"). The Worker side, in order (each `--remote` step is a deploy step; nothing here runs without being asked):
+
+1. The wiki must already publish a registry that contains `all` (with `options.targets`).
+2. `pnpm db:migrate:remote` (adds the `title` column), then `pnpm deploy` (`PUBLISH_REV` 2: new blob shape, type def and embed).
+3. Data migration, game-specific so it is **not** in `migrations/`: `pnpm exec wrangler d1 execute wiki_cms_db --local --file scripts/data/2026-10-team-creator.sql` first (try it on `node scripts/dev-seed.mjs --reset` data), then the same with `--remote`. It moves every `lah-team-formation` row to `all`, maps `rng` to `successRate` (`none`/`few` to `high`, `many` to `medium`, `impractical` to `low`), sets `teamType = manual`, turns the three SSS simulator group ids into `payload.target`, bumps `version`/`updated_at` (open edit dialogs get a conflict) and writes one `data.migrate` audit row. It is idempotent: **run it again after the wiki deploy** to sweep rows that arrived in an old group meanwhile.
+4. `CLI_TOKEN=… node cli/cms.ts republish --type lah-team-formation --url <PUBLIC_URL>`, then `republish --all`.
+5. Moderators add names to the legacy rows (admin: "Untitled only").
+
 ## 3. Operations
 
 | Task | Command |
@@ -95,7 +105,7 @@ older than 90 days (`IP_RETENTION_DAYS` in `src/config.ts`), and refreshes each 
 Workers Cache is a deploy-time feature and cannot be verified locally:
 
 ```bash
-node scripts/smoke-cache.mjs https://wiki-cms.rongjie.workers.dev lah-team-formation quest-1272003
+node scripts/smoke-cache.mjs https://wiki-cms.rongjie.workers.dev lah-team-formation all
 ```
 
 It checks that the public list endpoint is served `HIT` on the second request, that `Cache-Tag`/`CDN-Cache-Control` behave as designed

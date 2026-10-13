@@ -32,7 +32,7 @@ function init() {
     import('./list.tsx').then(
       (m) => {
         const d = el.dataset
-        const opts: ListOpts = { api: (d.cmsApi || origin).replace(/\/+$/, ''), type: d.cmsType!, group: d.cmsGroup || '', plugin: d.cmsPlugin || null }
+        const opts: ListOpts = { api: (d.cmsApi || origin).replace(/\/+$/, ''), type: d.cmsType!, group: d.cmsGroup || '', plugin: d.cmsPlugin || null, layout: d.cmsLayout === 'catalog' ? 'catalog' : 'list' }
         m.mountList(el, opts)
       },
       () => placeholder(el, text(el, 'failed'), () => load(el)),

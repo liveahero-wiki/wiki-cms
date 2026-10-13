@@ -3,6 +3,7 @@ import { checkExplanation, renderExplanation } from './markdown-policy.ts'
 import { langFromTag, pickText } from './i18n.ts'
 import { ipKey } from '../core/ip.ts'
 import { normalizeDemoUrl } from '../core/demo-url.ts'
+import { checkTitle } from './title-policy.ts'
 import { lahTeamFormation } from '../types/lah-team-formation/index.ts'
 
 describe('markdown policy', () => {
@@ -101,5 +102,31 @@ describe('i18n helpers', () => {
   it('pickText falls back to en', () => {
     expect(pickText({ en: 'a', ja: 'b' }, 'ja')).toBe('b')
     expect(pickText({ en: 'a' }, 'zh-Hant')).toBe('a')
+  })
+})
+
+describe('title policy', () => {
+  const rules = { required: true, minLength: 4, maxLength: 50 }
+  const codesOf = (raw: unknown) => checkTitle(raw, rules).errors.map((e) => e.code)
+  it('normalises width, case of spaces and trims', () => {
+    expect(checkTitle('  ＳＳＳ \t  team\n ', rules)).toEqual({ value: 'SSS team', errors: [] })
+  })
+  it('enforces required and length in code points', () => {
+    expect(codesOf('')).toEqual(['title_required'])
+    expect(codesOf('   ')).toEqual(['title_required'])
+    expect(codesOf(undefined)).toEqual(['title_required'])
+    expect(codesOf('abc')).toEqual(['title_too_short'])
+    expect(codesOf('abcd')).toEqual([])
+    expect(codesOf('a'.repeat(50))).toEqual([])
+    expect(codesOf('a'.repeat(51))).toEqual(['title_too_long'])
+    expect(codesOf('😀'.repeat(50))).toEqual([])
+    expect(codesOf('三回合通关')).toEqual([])
+    expect(checkTitle('', { ...rules, required: false }).errors).toEqual([])
+  })
+  it('rejects links, domains and invisible characters, but allows names like Lv.60 and No.1', () => {
+    for (const bad of ['see https://x.test now', 'www.example.org team', 'best at example.com', '[a](b) team']) expect(codesOf(bad), bad).toContain('title_link')
+    expect(codesOf('Lv.60 auto clear')).toEqual([])
+    expect(codesOf('No.1 team v1.2')).toEqual([])
+    expect(codesOf('zero​width')).toContain('title_invalid')
   })
 })

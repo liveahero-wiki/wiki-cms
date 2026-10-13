@@ -1,3 +1,4 @@
+import { PUBLISH_REV } from '../src/config.ts'
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { republish } from '../src/core/publish.ts'
@@ -16,7 +17,7 @@ async function insertApproved(id: string, group: string, createdAt: number, extr
      VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
-      id, TYPE, group, extra.state ?? 'approved', JSON.stringify(goodTeam()), '{"rng":"few"}', 'en', 'md', `<p>${id}</p>`,
+      id, TYPE, group, extra.state ?? 'approved', JSON.stringify(goodTeam()), '{"teamType":"manual","successRate":"medium"}', 'en', 'md', `<p>${id}</p>`,
       'https://youtu.be/x', createdAt, createdAt, createdAt, '9.9.9.9', '9.9.9.9', 'JP', '{"secret":1}', 'mod-1', 'ok',
     )
     .run()
@@ -61,6 +62,7 @@ describe('POST /api/v1/submissions', () => {
     const res = await post(h, 'quest-1', submitBody({
       payload: goodTeam({ supportIndex: 0 }),
       tags: {},
+      title: '',
       lang: 'xx',
       explanation: 'see [a](http://x)',
       demoUrl: 'https://evil.com/v',
@@ -69,7 +71,7 @@ describe('POST /api/v1/submissions', () => {
     const { error } = (await res.json()) as { error: { fields: { path: string; code: string }[] } }
     const got = error.fields.map((f) => `${f.path}:${f.code}`).sort()
     expect(got).toEqual(
-      ['demoUrl:demo_host', 'explanation:md_link', 'lang:lang_invalid', 'payload.supportIndex:support_not_allowed', 'tags.rng:tag_required'].sort(),
+      ['demoUrl:demo_host', 'explanation:md_link', 'lang:lang_invalid', 'payload.supportIndex:support_not_allowed', 'tags.successRate:tag_required', 'tags.teamType:tag_required', 'title:title_required'].sort(),
     )
     expect(await rows()).toHaveLength(0)
   })
@@ -205,14 +207,14 @@ describe('republish', () => {
     const r = await republish(env, TYPE, rt, 'quest-1', h.purge)
     expect(h.purge).toHaveBeenCalledWith({ tags: [`pub:${TYPE}:quest-1`] })
     expect(r.purge.success).toBe(true)
-    const blob = JSON.parse((await env.KV.get(`pub:1:${TYPE}:quest-1`))!) as { items: { id: string }[] }
+    const blob = JSON.parse((await env.KV.get(`pub:${PUBLISH_REV}:${TYPE}:quest-1`))!) as { items: { id: string }[] }
     expect(blob.items.map((i) => i.id)).toEqual(['a'])
 
     await insertApproved('b', 'quest-1', 2000)
     h.purge.mockResolvedValueOnce({ success: false, errors: [{ code: 1, message: 'rate' }] })
     const r2 = await republish(env, TYPE, rt, 'quest-1', h.purge)
     expect(r2.purge.success).toBe(false)
-    const blob2 = JSON.parse((await env.KV.get(`pub:1:${TYPE}:quest-1`))!) as { items: { id: string }[] }
+    const blob2 = JSON.parse((await env.KV.get(`pub:${PUBLISH_REV}:${TYPE}:quest-1`))!) as { items: { id: string }[] }
     expect(blob2.items.map((i) => i.id)).toEqual(['b', 'a'])
 
     h.purge.mockRejectedValueOnce(new Error('boom'))
@@ -221,8 +223,8 @@ describe('republish', () => {
 
   it('removes the KV blob for a group that left the registry', async () => {
     const rt = (await getType(env, TYPE))!
-    await env.KV.put(`pub:1:${TYPE}:gone`, '{}')
+    await env.KV.put(`pub:${PUBLISH_REV}:${TYPE}:gone`, '{}')
     await republish(env, TYPE, rt, 'gone', h.purge)
-    expect(await env.KV.get(`pub:1:${TYPE}:gone`)).toBeNull()
+    expect(await env.KV.get(`pub:${PUBLISH_REV}:${TYPE}:gone`)).toBeNull()
   })
 })

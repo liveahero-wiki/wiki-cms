@@ -1,3 +1,4 @@
+import { PUBLISH_REV } from '../src/config.ts'
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { runHousekeeping } from '../src/core/housekeeping.ts'
@@ -182,19 +183,19 @@ describe('moderation', () => {
     const id = await submit('quest-1', { explanation: 'first' })
     await approve(mod, id)
     h.purge.mockClear()
-    const e1 = await api(mod, 'PATCH', `/submissions/${id}`, { expectedVersion: 2, explanation: '## Edited\nbody', tags: { rng: 'many' } })
+    const e1 = await api(mod, 'PATCH', `/submissions/${id}`, { expectedVersion: 2, explanation: '## Edited\nbody', tags: { teamType: 'manual', successRate: 'medium' } })
     expect(e1.status).toBe(200)
     const item = (await json(e1)).item
     expect(item.version).toBe(3)
     expect(item.explanationHtml).toContain('<h4>Edited</h4>')
-    expect(item.tags).toEqual({ rng: 'many' })
+    expect(item.tags).toEqual({ teamType: 'manual', successRate: 'medium' })
     expect(item.original.explanation).toBe('first')
-    expect(item.original.tags).toEqual({ rng: 'none' })
+    expect(item.original.tags).toEqual({ teamType: 'manual', successRate: 'high' })
     expect(h.purge).toHaveBeenCalledWith({ tags: [`pub:${TYPE}:quest-1`] })
     const e2 = await api(mod, 'PATCH', `/submissions/${id}`, { expectedVersion: 3, explanation: 'second edit' })
     expect((await json(e2)).item.original.explanation).toBe('first')
     const list = await json(await h.fetch(`/api/v1/submissions/${TYPE}/quest-1`))
-    expect(list.items[0].tags).toEqual({ rng: 'many' })
+    expect(list.items[0].tags).toEqual({ teamType: 'manual', successRate: 'medium' })
     const audit = await json(await api(mod, 'GET', '/audit'))
     const edit = audit.entries.find((a: { action: string }) => a.action === 'submission.edit')
     expect(edit.detail.changed).toEqual(expect.arrayContaining(['explanation']))
@@ -250,7 +251,7 @@ describe('moderation', () => {
     expect(res.groups).toHaveLength(1)
     expect(res.groups[0]).toMatchObject({ groupId: 'quest-1', title: 'Event › SS', options: { support: false }, pending: 1, approved: 1, spam: 0, inRegistry: true })
     const all = await json(await api(mod, 'GET', `/types/${TYPE}/groups?all=1`))
-    expect(all.groups.map((g: { groupId: string }) => g.groupId).sort()).toEqual(['hero-10251', 'quest-1', 'quest-2'])
+    expect(all.groups.map((g: { groupId: string }) => g.groupId).sort()).toEqual(['all', 'hero-10251', 'quest-1', 'quest-2'])
   })
 })
 
@@ -376,7 +377,7 @@ describe('internal API', () => {
     const res = await json(await call('test-cli-token', { type: TYPE }))
     expect(res.purgeOk).toBe(true)
     const tags = h.purge.mock.calls.flatMap((c) => c[0].tags ?? []).sort()
-    expect(tags).toEqual([`cfg:${TYPE}`, `pub:${TYPE}:hero-10251`, `pub:${TYPE}:quest-1`, `pub:${TYPE}:quest-2`])
+    expect(tags).toEqual([`cfg:${TYPE}`, `pub:${TYPE}:all`, `pub:${TYPE}:hero-10251`, `pub:${TYPE}:quest-1`, `pub:${TYPE}:quest-2`])
     h.purge.mockClear()
     await call('test-cli-token', { type: TYPE, group: 'quest-1' })
     expect(h.purge.mock.calls).toEqual([[{ tags: [`pub:${TYPE}:quest-1`] }]])
@@ -447,7 +448,7 @@ describe('housekeeping', () => {
     const r = await runHousekeeping(env, h.purge, clock + 1000)
     expect(r.groupsRepublished).toBe(1)
     expect(h.purge).toHaveBeenCalledWith({ tags: [`pub:${TYPE}:quest-2`] })
-    const blob = JSON.parse((await env.KV.get(`pub:1:${TYPE}:quest-2`))!)
+    const blob = JSON.parse((await env.KV.get(`pub:${PUBLISH_REV}:${TYPE}:quest-2`))!)
     expect(blob.groupOptions).toEqual({ support: false })
   })
 })

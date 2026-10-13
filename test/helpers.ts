@@ -14,6 +14,17 @@ export const REGISTRY = {
   groups: {
     'quest-1': { title: 'Event › SS', url: '/e/#team-quest-1', options: { support: false } },
     'quest-2': { title: 'Event › S', url: '/e/#team-quest-2' },
+    all: {
+      title: 'Team Creator',
+      url: '/team-creator.html',
+      options: {
+        support: 'optional',
+        targets: [
+          { id: 'quest-616001', label: { en: 'Simulator (SSS)' }, url: '/guide/challenge_simulator/' },
+          { id: 'quest-605001', label: { en: 'Old simulator' }, retired: true },
+        ],
+      },
+    },
     'hero-10251': {
       title: 'Andrew – Hero',
       url: '/charas/andrew/#team-hero-10251',
@@ -94,7 +105,8 @@ export const goodTeam = (extra: Record<string, unknown> = {}) => ({
 export function submitBody(over: Record<string, unknown> = {}) {
   return {
     payload: goodTeam(),
-    tags: { rng: 'none' },
+    title: 'Test team',
+    tags: { teamType: 'manual', successRate: 'high' },
     lang: 'en',
     explanation: '## Overview\nWorks.',
     demoUrl: 'https://youtu.be/abc',

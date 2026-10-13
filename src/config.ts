@@ -1,5 +1,5 @@
 /** Bump when the published blob shape or tag/lang labels change (also needs a purge-everything). */
-export const PUBLISH_REV = 1
+export const PUBLISH_REV = 2
 
 export const KV_PUBLISH_TTL_SECONDS = 60 * 60 * 24 * 90
 export const MAX_BODY_BYTES = 32 * 1024

@@ -28,6 +28,7 @@ publicRoutes.get('/types/:type', async (c) => {
     name: rt.name,
     langs: d.langs,
     tags: d.tags,
+    title: d.title ?? null,
     explanation: d.explanation,
     demoUrl: d.demoUrl,
     turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
@@ -194,6 +195,7 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
     groupId,
     state: 'pending',
     version: 1,
+    title: val.title,
     payload: JSON.stringify(val.payload),
     tags: JSON.stringify(val.tags),
     lang: val.lang,
@@ -210,7 +212,7 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
 
   // 11. Optional AI classification (never blocks the submission).
   if (c.env.AI && c.env.AI_MODERATION !== 'off') {
-    const moderationText = [val.explanation, val.demoUrl, rt.def.moderationText?.(val.payload)].filter(Boolean).join('\n')
+    const moderationText = [val.title, val.explanation, val.demoUrl, rt.def.moderationText?.(val.payload)].filter(Boolean).join('\n')
     c.executionCtx.waitUntil(aiModerate(c.env, id, moderationText, now))
   }
 

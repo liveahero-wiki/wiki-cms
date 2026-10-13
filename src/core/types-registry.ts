@@ -11,6 +11,8 @@ export interface TagDef {
   key: string
   label: I18nText
   required: boolean
+  /** Preselected in the submit form (the server still enforces `required` and never fills it in). */
+  default?: string
   options: TagOption[]
 }
 
@@ -35,6 +37,8 @@ export interface SubmissionTypeDef<P = unknown> {
   /** Content-language options; labels are endonyms and are not translated. */
   langs: { value: Lang; label: string }[]
   tags: TagDef[]
+  /** Optional per-item name shown on every card (plain text). Types without it behave as before. */
+  title?: { required: boolean; minLength: number; maxLength: number; label: I18nText; placeholder?: I18nText }
   /** Overrides the generic disclaimer text from the embed i18n bundle. */
   disclaimer?: I18nText
   explanation: { maxLength: number; template: Record<Lang, string> }

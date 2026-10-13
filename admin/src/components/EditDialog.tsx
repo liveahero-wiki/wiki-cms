@@ -3,6 +3,7 @@ import type { AdminSubmission, EditSubmissionRequest, ModerationResponse } from 
 import type { Lang } from '../../../src/shared/i18n.ts'
 import type { EditorHandle, FieldError, PluginContext, SubmissionPlugin } from '../../../src/shared/plugin-api.ts'
 import { ApiError, api, errorMessage } from '../api.ts'
+import { checkTitle } from '../../../src/shared/title-policy.ts'
 import { loadMarkdownPolicy } from '../markdown.ts'
 import { useTheme } from '../theme.ts'
 import { useTypeData } from '../typeData.tsx'
@@ -128,6 +129,7 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
   const form = useRef<HTMLFormElement>(null)
 
   const [groupId, setGroupId] = useState(item.groupId)
+  const [title, setTitle] = useState(item.title)
   const [lang, setLang] = useState<Lang>(item.lang)
   const [tags, setTags] = useState<Record<string, string>>(item.tags)
   const [explanation, setExplanation] = useState(item.explanation)
@@ -169,6 +171,7 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
 
   const dirty =
     groupId !== item.groupId ||
+    title !== item.title ||
     lang !== item.lang ||
     explanation !== item.explanation ||
     demoUrl !== item.demoUrl ||
@@ -177,7 +180,7 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
 
   const byPath = (p: string) => errors.filter((e) => e.path === p)
   const payloadErrors = useMemo(() => errors.filter((e) => isPayloadPath(e.path)), [errors])
-  const known = (p: string) => isPayloadPath(p) || p === 'lang' || p === 'explanation' || p === 'demoUrl' || p.startsWith('tags.')
+  const known = (p: string) => isPayloadPath(p) || p === 'title' || p === 'lang' || p === 'explanation' || p === 'demoUrl' || p.startsWith('tags.')
   const otherErrors = errors.filter((e) => !known(e.path))
 
   // Move focus to the first invalid control after a failed save.
@@ -189,6 +192,7 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
     e.preventDefault()
     setGeneral(null)
     const local: FieldError[] = []
+    if (config?.title) local.push(...checkTitle(title, config.title).errors)
     if (!normalized) local.push({ path: 'explanation', code: 'explanation_required', message: 'An explanation is required.' })
     else if (normalized.length > max) local.push({ path: 'explanation', code: 'explanation_too_long', message: `The explanation must be at most ${max} characters.` })
     else local.push(...mdErrors)
@@ -207,6 +211,7 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
     }
     const body: EditSubmissionRequest = { expectedVersion: item.version }
     if (groupId !== item.groupId) body.groupId = groupId
+    if (title !== item.title) body.title = title
     if (lang !== item.lang) body.lang = lang
     if (JSON.stringify(tags) !== JSON.stringify(item.tags)) body.tags = tags
     if (explanation !== item.explanation) body.explanation = explanation
@@ -271,6 +276,27 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
           </select>
           {groupId !== item.groupId && <span class="hint">Moving groups: the team formation is validated against the new group&apos;s rules (for example the support slot).</span>}
         </label>
+
+        {config?.title && (
+          <label class="field">
+            <span class="field-label">{config.title.label.en}</span>
+            <input
+              class="input"
+              type="text"
+              value={title}
+              maxLength={config.title.maxLength * 2}
+              placeholder={config.title.placeholder?.en}
+              onInput={(e) => setTitle(e.currentTarget.value)}
+              disabled={saving}
+              aria-invalid={byPath('title').length > 0 || undefined}
+              aria-describedby="err-title"
+            />
+            <span class="hint">
+              {config.title.minLength}–{config.title.maxLength} characters, plain text, no links.
+            </span>
+            <FieldErrors id="err-title" errors={byPath('title')} />
+          </label>
+        )}
 
         <div class="field-row">
           <label class="field">

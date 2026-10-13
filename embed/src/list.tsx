@@ -1,27 +1,13 @@
 import { Component, render, type ComponentChildren } from 'preact'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { PublicBlob, PublicItem, TagDefDto, TypeConfig } from '../../src/shared/api-types.ts'
+import { useEffect, useMemo, useState } from 'preact/hooks'
+import type { PublicBlob, TypeConfig } from '../../src/shared/api-types.ts'
 import { pickText } from '../../src/shared/i18n.ts'
-import type { SubmissionPlugin } from '../../src/shared/plugin-api.ts'
+import { Card, Chip, type PluginState } from './cards.tsx'
+import { Catalog } from './catalog.tsx'
 import { t } from './i18n/t.ts'
-import {
-  demoPlatform,
-  fetchBlob,
-  fetchConfig,
-  injectStyle,
-  isLang,
-  langFromTag,
-  loadPlugin,
-  makeCtx,
-  parseHttps,
-  resolveUiLang,
-  type Lang,
-  type ListOpts,
-} from './shared.ts'
+import { fetchBlob, fetchConfig, injectStyle, isLang, langFromTag, loadPlugin, makeCtx, resolveUiLang, type Lang, type ListOpts } from './shared.ts'
 
 const PAGE = 10
-
-type PluginState = { s: 'loading' } | { s: 'failed' } | { s: 'ready'; plugin: SubmissionPlugin }
 
 /** UI language: data-cms-lang → <html lang> → navigator → en, re-resolved on `cms:lang`. */
 function useUiLang(host: HTMLElement): Lang {
@@ -141,6 +127,8 @@ function App({ host, opts }: { host: HTMLElement; opts: ListOpts }) {
         <span /> <span />
       </div>
     )
+  } else if (opts.layout === 'catalog') {
+    body = <Catalog blob={state.blob} uiLang={uiLang} plugin={plugin} ctx={ctx} />
   } else {
     const items = state.blob.items
     const present = state.blob.meta.langs.filter((l) => items.some((i) => i.lang === l.value))
@@ -189,133 +177,6 @@ function App({ host, opts }: { host: HTMLElement; opts: ListOpts }) {
         )}
       </div>
       {body}
-    </div>
-  )
-}
-
-function Chip({ active, onClick, children }: { active: boolean; onClick(): void; children: ComponentChildren }) {
-  return (
-    <button type="button" class={`cms-chip cms-chip-btn${active ? ' cms-active' : ''}`} aria-pressed={active} onClick={onClick}>
-      {children}
-    </button>
-  )
-}
-
-function Card({
-  item,
-  blob,
-  uiLang,
-  plugin,
-  ctx,
-}: {
-  item: PublicItem
-  blob: PublicBlob
-  uiLang: Lang
-  plugin: PluginState
-  ctx: ReturnType<typeof makeCtx>
-}) {
-  const tagChips = blob.meta.tags.flatMap((def: TagDefDto) => {
-    const v = item.tags[def.key]
-    const opt = v === undefined ? undefined : def.options.find((o) => o.value === v)
-    return opt ? [`${pickText(def.label, uiLang)}: ${pickText(opt.label, uiLang)}`] : []
-  })
-  const langLabel = blob.meta.langs.find((l) => l.value === item.lang)?.label ?? item.lang
-  const date = useMemo(() => {
-    try {
-      return new Intl.DateTimeFormat(uiLang, { dateStyle: 'medium' }).format(item.createdAt)
-    } catch {
-      return new Date(item.createdAt).toISOString().slice(0, 10)
-    }
-  }, [uiLang, item.createdAt])
-  const demo = parseHttps(item.demoUrl)
-  const platform = demo ? demoPlatform(demo.hostname) : null
-
-  return (
-    <>
-      <Summary item={item} uiLang={uiLang} plugin={plugin} ctx={ctx} />
-      <div class="cms-meta">
-        {tagChips.map((c) => (
-          <span key={c} class="cms-chip">
-            {c}
-          </span>
-        ))}
-        <span class="cms-chip" lang={item.lang}>
-          {langLabel}
-        </span>
-        <span class="cms-date">{t(uiLang, 'card.submitted', { date })}</span>
-        {demo && (
-          <a class="cms-btn cms-demo" href={demo.href} target="_blank" rel="noopener noreferrer nofollow ugc">
-            {platform ? t(uiLang, 'card.demo', { platform }) : t(uiLang, 'card.demoGeneric')}
-          </a>
-        )}
-      </div>
-      <Explanation html={item.explanationHtml} lang={item.lang} uiLang={uiLang} />
-    </>
-  )
-}
-
-function Summary({ item, uiLang, plugin, ctx }: { item: PublicItem; uiLang: Lang; plugin: PluginState; ctx: ReturnType<typeof makeCtx> }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [failed, setFailed] = useState(false)
-  const ready = plugin.s === 'ready' ? plugin.plugin : null
-  useEffect(() => {
-    const el = ref.current
-    if (!el || !ready) return
-    let cleanup: (() => void) | undefined
-    try {
-      cleanup = ready.mountSummary(el, item.payload, ctx)
-      setFailed(false)
-    } catch (e) {
-      console.warn('[wiki-cms] plugin mountSummary failed', e)
-      setFailed(true)
-    }
-    return () => {
-      try {
-        cleanup?.()
-      } catch {
-        /* ignore plugin cleanup errors */
-      }
-      el.replaceChildren()
-    }
-  }, [ready, item.payload, ctx])
-
-  if (plugin.s === 'failed' || failed) return <p class="cms-unavailable">{t(uiLang, 'card.detailsUnavailable')}</p>
-  return <div class="cms-summary" ref={ref} aria-busy={plugin.s === 'loading'} />
-}
-
-function Explanation({ html, lang, uiLang }: { html: string; lang: Lang; uiLang: Lang }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [expanded, setExpanded] = useState(false)
-  const [overflow, setOverflow] = useState(false)
-  const measure = useCallback(() => {
-    const el = ref.current
-    if (el && !expanded) setOverflow(el.scrollHeight > el.clientHeight + 1)
-  }, [expanded])
-  useLayoutEffect(() => {
-    measure()
-    const el = ref.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    // Also fires when a hidden ancestor (e.g. an inactive tab) becomes visible, and on width changes.
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [measure, html])
-  const id = useMemo(() => `cms-x-${Math.random().toString(36).slice(2, 8)}`, [])
-  return (
-    <div class="cms-expl-wrap">
-      <div
-        ref={ref}
-        id={id}
-        class={`cms-expl${expanded ? ' cms-expanded' : ''}`}
-        lang={lang}
-        // Server-rendered with HTML disabled (src/shared/markdown-policy.ts).
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-      {(overflow || expanded) && (
-        <button type="button" class="cms-link" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded((x) => !x)}>
-          {expanded ? t(uiLang, 'card.showLess') : t(uiLang, 'card.showFull')}
-        </button>
-      )}
     </div>
   )
 }

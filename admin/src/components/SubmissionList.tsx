@@ -20,6 +20,7 @@ export function SubmissionList({ typeId, groupId, state }: Props) {
   const [loading, setLoading] = useState(true)
   const [more, setMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [untitledOnly, setUntitledOnly] = useState(false)
   const req = useRef(0)
 
   async function load(reset: boolean, from: string | null = null) {
@@ -64,6 +65,7 @@ export function SubmissionList({ typeId, groupId, state }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeId, groupId, state])
 
+  const shown = untitledOnly ? items.filter((i) => !i.title) : items
   const ready = (td.groups !== undefined || td.groupsError) && (td.config !== undefined || td.configError) && td.plugin.status !== 'loading'
 
   return (
@@ -76,8 +78,14 @@ export function SubmissionList({ typeId, groupId, state }: Props) {
       {ready && (
         <div class="list-bar">
           <span class="hint">
-            {items.length > 0 && `Showing ${items.length} submission${items.length === 1 ? '' : 's'}, newest first`}
+            {items.length > 0 && `Showing ${shown.length} of ${items.length} loaded submission${items.length === 1 ? '' : 's'}, newest first`}
           </span>
+          {td.config?.title && (
+            <label class="check">
+              <input type="checkbox" checked={untitledOnly} onChange={(e) => setUntitledOnly(e.currentTarget.checked)} />
+              <span>Untitled only</span>
+            </label>
+          )}
           <button type="button" class="btn btn-small" onClick={refresh} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -89,7 +97,8 @@ export function SubmissionList({ typeId, groupId, state }: Props) {
         <Empty>No {state} submissions{groupId ? ' in this group' : ''}.</Empty>
       ) : (
         <>
-          {items.map((it) => (
+          {shown.length === 0 && <Empty>No untitled submissions among the loaded ones.</Empty>}
+          {shown.map((it) => (
             <SubmissionCard
               key={it.id}
               item={it}

@@ -47,6 +47,7 @@ function OriginalPanel({ original }: { original: NonNullable<AdminSubmission['or
   return (
     <section class="original" aria-label="Original submission">
       <h4>Original (as submitted)</h4>
+      {td.config?.title && <p class="card-title">{original.title ? original.title : <span class="hint">Untitled</span>}</p>}
       <PayloadView kind="summary" payload={original.payload} groupId={original.groupId} />
       <p class="meta-line">
         <span>Group: {groupTitle(td, original.groupId)}</span>
@@ -171,6 +172,18 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
         <p class="moved-note">
           Moved to {[movedState && item.state, movedGroup && `group “${groupTitle(td, item.groupId)}”`].filter(Boolean).join(' / ')}. It stays here until you refresh the list.
         </p>
+      )}
+
+      {td.config?.title && (
+        <h3 class="card-title">
+          {item.title ? (
+            item.title
+          ) : (
+            <Badge kind="warn" title="Legacy submission without a name: edit it to add one">
+              Untitled
+            </Badge>
+          )}
+        </h3>
       )}
 
       <div class="card-payload">

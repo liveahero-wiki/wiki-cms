@@ -1,5 +1,6 @@
 import { isLang, type Lang } from '../shared/i18n.ts'
 import { checkExplanation, renderExplanation } from '../shared/markdown-policy.ts'
+import { checkTitle } from '../shared/title-policy.ts'
 import type { FieldError } from '../shared/plugin-api.ts'
 import { normalizeDemoUrl } from './demo-url.ts'
 import type { GroupInfo, ValidateContext } from './types-registry.ts'
@@ -8,6 +9,7 @@ import type { ResolvedType } from './types-runtime.ts'
 export interface SubmissionInput {
   payload?: unknown
   tags?: unknown
+  title?: unknown
   lang?: unknown
   explanation?: unknown
   demoUrl?: unknown
@@ -16,6 +18,7 @@ export interface SubmissionInput {
 export interface ValidatedSubmission {
   payload: unknown
   tags: Record<string, string>
+  title: string
   lang: Lang
   explanation: string
   explanationHtml: string
@@ -39,6 +42,14 @@ export function validateSubmission(
   let lang: Lang = 'en'
   if (isLang(input.lang) && def.langs.some((l) => l.value === input.lang)) lang = input.lang as Lang
   else errors.push({ path: 'lang', code: 'lang_invalid', message: 'Unsupported language.' })
+
+  // title (only for types that define one; otherwise any input is ignored)
+  let title = ''
+  if (def.title) {
+    const r = checkTitle(input.title, def.title)
+    title = r.value
+    errors.push(...r.errors)
+  }
 
   // tags
   const tags: Record<string, string> = {}
@@ -91,6 +102,7 @@ export function validateSubmission(
     value: {
       payload,
       tags,
+      title,
       lang,
       explanation,
       explanationHtml: renderExplanation(explanation),

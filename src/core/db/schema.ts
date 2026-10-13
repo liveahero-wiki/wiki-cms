@@ -92,6 +92,7 @@ export const submission_tab = sqliteTable(
       .references(() => submission_type_tab.id),
     groupId: text('group_id').notNull(),
     state: text('state', { enum: ['pending', 'approved', 'spam'] }).notNull(),
+    title: text('title').notNull().default(''),
     version: integer('version').notNull().default(1),
     payload: text('payload').notNull(),
     tags: text('tags').notNull(),

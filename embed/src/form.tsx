@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { SubmitRequest, TypeConfig } from '../../src/shared/api-types.ts'
 import { pickText } from '../../src/shared/i18n.ts'
 import { checkExplanation, renderExplanation } from '../../src/shared/markdown-policy.ts'
+import { checkTitle, titleLength, normalizeTitle } from '../../src/shared/title-policy.ts'
 import type { EditorHandle, FieldError, SubmissionPlugin } from '../../src/shared/plugin-api.ts'
 import { apiErrorText, fieldErrorText, t } from './i18n/t.ts'
 import { fetchConfig, injectStyle, loadPlugin, makeCtx, parseHttps, postSubmission, type Lang, type ListOpts } from './shared.ts'
@@ -17,6 +18,8 @@ export interface FormArgs {
 
 interface Values {
   payload: unknown
+  /** '' when the type has no names. */
+  title: string
   tags: Record<string, string>
   lang: Lang
   explanation: string
@@ -53,6 +56,9 @@ function loadTurnstile(): Promise<TurnstileApi> {
 
 const stable = (v: unknown) => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x))
 const template = (cfg: TypeConfig, lang: Lang) => cfg.explanation.template[lang] ?? cfg.explanation.template.en
+/** Tags the form preselects (a type's `default`; the server never fills them in). */
+const tagDefaults = (cfg: TypeConfig): Record<string, string> =>
+  Object.fromEntries(cfg.tags.flatMap((d) => (d.default !== undefined && d.options.some((o) => o.value === d.default) ? [[d.key, d.default]] : [])))
 const isPayloadPath = (p: string) => p === 'payload' || p.startsWith('payload.')
 const normPayloadPath = (p: string) => (isPayloadPath(p) ? p : p ? `payload.${p}` : 'payload')
 
@@ -69,7 +75,8 @@ function readDraft(key: string, cfg: TypeConfig): Values | null {
       const x = d.tags?.[def.key]
       if (typeof x === 'string' && def.options.some((o) => o.value === x)) tags[def.key] = x
     }
-    return { payload: d.payload, tags, lang, explanation: d.explanation, demoUrl: d.demoUrl }
+    // Keys the draft lacks (e.g. tags added after it was saved) get the type's defaults.
+    return { payload: d.payload, title: typeof d.title === 'string' ? d.title : '', tags: { ...tagDefaults(cfg), ...tags }, lang, explanation: d.explanation, demoUrl: d.demoUrl }
   } catch {
     return null
   }
@@ -92,6 +99,10 @@ function validateLocal(cfg: TypeConfig, v: Values): FieldError[] {
     params,
   })
   const errors: FieldError[] = []
+  if (cfg.title) {
+    // checkTitle's English messages are only a fallback; the form localizes from code/params.
+    errors.push(...checkTitle(v.title, cfg.title).errors)
+  }
   for (const def of cfg.tags) {
     if (def.required && !v.tags[def.key]) errors.push({ path: `tags.${def.key}`, ...en('tag_required') })
   }
@@ -194,7 +205,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
   const ctx = useMemo(() => makeCtx(opts, L, groupOptions), [])
   const defaultLang = (cfg.langs.some((l) => l.value === 'en') ? 'en' : cfg.langs[0]?.value ?? 'en') as Lang
   const fresh = useMemo<Values>(
-    () => ({ payload: plugin.defaultPayload(), tags: {}, lang: defaultLang, explanation: template(cfg, defaultLang), demoUrl: '' }),
+    () => ({ payload: plugin.defaultPayload(), title: '', tags: tagDefaults(cfg), lang: defaultLang, explanation: template(cfg, defaultLang), demoUrl: '' }),
     [],
   )
   const restored = useMemo(() => readDraft(draftKey, cfg), [])
@@ -286,7 +297,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
   const clearErrors = (match: (path: string) => boolean) => setErrors((es) => (es.some((e) => match(e.path)) ? es.filter((e) => !match(e.path)) : es))
   const errFor = (path: string) => errors.filter((e) => e.path === path)
   // Errors whose path matches no control (e.g. a field a newer server added) still get shown, in the footer.
-  const knownPaths = new Set(['lang', 'explanation', 'demoUrl', ...cfg.tags.map((d) => `tags.${d.key}`)])
+  const knownPaths = new Set(['title', 'lang', 'explanation', 'demoUrl', ...cfg.tags.map((d) => `tags.${d.key}`)])
   const otherErrors = errors.filter((e) => !isPayloadPath(e.path) && !knownPaths.has(e.path))
 
   const liveExpl = useMemo(() => (v.explanation.trim() ? checkExplanation(v.explanation) : []), [v.explanation])
@@ -360,6 +371,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
     setBusy(true)
     const body: SubmitRequest = {
       payload: v.payload,
+      ...(cfg.title ? { title: normalizeTitle(v.title) } : {}),
       tags: v.tags,
       lang: v.lang,
       explanation: v.explanation,
@@ -421,6 +433,40 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
               {t(L, 'form.startOver')}
             </button>
           </p>
+        )}
+
+        {cfg.title && (
+          <div class="cms-field">
+            <div class="cms-label-row">
+              <label class="cms-label" for="cms-title">
+                {pickText(cfg.title.label, L)} {cfg.title.required && <Req lang={L} />}
+              </label>
+              <span class={`cms-counter${titleLength(normalizeTitle(v.title)) > cfg.title.maxLength ? ' cms-over' : ''}`} id="cms-title-count">
+                {titleLength(normalizeTitle(v.title))} / {cfg.title.maxLength}
+              </span>
+            </div>
+            <input
+              id="cms-title"
+              class="cms-input"
+              data-field="title"
+              type="text"
+              autocomplete="off"
+              maxLength={cfg.title.maxLength * 2}
+              placeholder={cfg.title.placeholder ? pickText(cfg.title.placeholder, L) : undefined}
+              value={v.title}
+              aria-describedby="cms-title-hint cms-title-err cms-title-count"
+              aria-invalid={errFor('title').length ? true : undefined}
+              onInput={(e) => {
+                const title = (e.currentTarget as HTMLInputElement).value
+                clearErrors((p) => p === 'title')
+                setV((x) => ({ ...x, title }))
+              }}
+            />
+            <p class="cms-hint" id="cms-title-hint">
+              {t(L, 'form.titleHint', { min: cfg.title.minLength, max: cfg.title.maxLength })}
+            </p>
+            <Errors id="cms-title-err" lang={L} errors={errFor('title')} />
+          </div>
         )}
 
         <div class="cms-field" role="group" aria-labelledby="cms-f-team">

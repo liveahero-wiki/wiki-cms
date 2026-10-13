@@ -20,6 +20,8 @@ export interface TagDefDto {
   key: string
   label: I18nText
   required: boolean
+  /** Preselected in the submit form. */
+  default?: string
   options: TagOptionDto[]
 }
 
@@ -29,6 +31,8 @@ export interface TypeConfig {
   name: string
   langs: { value: Lang; label: string }[]
   tags: TagDefDto[]
+  /** Present when the type has a per-item name. */
+  title: { required: boolean; minLength: number; maxLength: number; label: I18nText; placeholder?: I18nText } | null
   explanation: { maxLength: number; template: Record<Lang, string> }
   demoUrl: { required: boolean; allowedHosts: string[] }
   turnstileSiteKey: string
@@ -38,6 +42,8 @@ export interface TypeConfig {
 export interface PublicItem {
   id: string
   createdAt: number
+  /** '' for legacy rows without a name. */
+  title: string
   lang: Lang
   tags: Record<string, string>
   demoUrl: string
@@ -53,7 +59,8 @@ export interface PublicBlob {
   generatedAt: number
   /** Registry options of the group; pass to the plugin as ctx.group.options. */
   groupOptions: Record<string, unknown>
-  meta: { langs: { value: Lang; label: string }[]; tags: TagDefDto[] }
+  /** `title` is true when the type has per-item names (cards then show a name or an "untitled" placeholder). */
+  meta: { langs: { value: Lang; label: string }[]; tags: TagDefDto[]; title: boolean }
   items: PublicItem[]
 }
 
@@ -61,6 +68,7 @@ export interface PublicBlob {
 export interface SubmitRequest {
   payload: unknown
   tags: Record<string, string>
+  title?: string
   lang: Lang
   explanation: string
   demoUrl: string
@@ -109,6 +117,7 @@ export interface AdminSubmission {
   groupId: string
   state: SubmissionState
   version: number
+  title: string
   payload: unknown
   tags: Record<string, string>
   lang: Lang
@@ -123,6 +132,8 @@ export interface AdminSubmission {
   original: {
     payload: unknown
     tags: Record<string, string>
+    /** Absent in snapshots taken before the title existed. */
+    title?: string
     lang: Lang
     explanation: string
     demoUrl: string
@@ -144,6 +155,7 @@ export interface EditSubmissionRequest {
   expectedVersion: number
   payload?: unknown
   tags?: Record<string, string>
+  title?: string
   lang?: Lang
   explanation?: string
   demoUrl?: string

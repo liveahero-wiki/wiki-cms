@@ -26,6 +26,7 @@ function add(o) {
     groupId: o.group,
     state: o.state ?? 'pending',
     version: o.version ?? 1,
+    title: o.title ?? '',
     payload: o.payload,
     tags: o.tags ?? { rng: 'few' },
     lang: o.lang ?? 'en',
@@ -43,6 +44,13 @@ function add(o) {
     aiReason: o.aiReason ?? null,
   })
 }
+
+// Legacy rows (old per-page groups, `rng` tag, no title) are kept on purpose: they exercise
+// scripts/data/2026-10-team-creator.sql (`wrangler d1 execute wiki_cms_db --local --file ...`).
+// `all` (needs the registry to list it): new-style rows with titles, the new tags and an optional target.
+add({ group: 'all', title: 'SSS Lantern auto clear', payload: { ...team([10011, 10021, 10031]), target: 'quest-616001' }, minsAgo: 20, state: 'approved', tags: { teamType: 'auto', successRate: 'high' } })
+add({ group: 'all', title: 'Budget manual run', payload: team([10041, 10051, 10061], 2), minsAgo: 60, state: 'approved', tags: { teamType: 'manual', successRate: 'medium' } })
+add({ group: 'all', title: 'Pending new-style team', payload: team([10011, 10061]), minsAgo: 2, tags: { teamType: 'manual', successRate: 'low' } })
 
 // quest-1: no support allowed
 add({ group: 'quest-1', payload: team([10011, 10021, 10031]), minsAgo: 3, country: 'US', ip: '198.51.100.20' })
@@ -71,8 +79,8 @@ for (let i = 0; i < 55; i++) {
   add({ group: 'quest-2', payload: team([10011, 10021], 0), minsAgo: 1000 + i, country: 'ZZ', ip: '192.0.2.66', explanation: `Flood message #${i + 1}` })
 }
 
-const cols = ['id', 'type', 'groupId', 'state', 'version', 'payload', 'tags', 'lang', 'explanation', 'explanationHtml', 'demoUrl', 'createdAt', 'updatedAt', 'stateChangedAt', 'original', 'ip', 'ipKey', 'country', 'aiVerdict', 'aiReason']
-const dbCols = ['id', 'type', 'group_id', 'state', 'version', 'payload', 'tags', 'lang', 'explanation', 'explanation_html', 'demo_url', 'created_at', 'updated_at', 'state_changed_at', 'original', 'ip', 'ip_key', 'country', 'ai_verdict', 'ai_reason']
+const cols = ['id', 'type', 'groupId', 'state', 'title', 'version', 'payload', 'tags', 'lang', 'explanation', 'explanationHtml', 'demoUrl', 'createdAt', 'updatedAt', 'stateChangedAt', 'original', 'ip', 'ipKey', 'country', 'aiVerdict', 'aiReason']
+const dbCols = ['id', 'type', 'group_id', 'state', 'title', 'version', 'payload', 'tags', 'lang', 'explanation', 'explanation_html', 'demo_url', 'created_at', 'updated_at', 'state_changed_at', 'original', 'ip', 'ip_key', 'country', 'ai_verdict', 'ai_reason']
 const lit = (v) => sqlLit(typeof v === 'object' && v !== null ? JSON.stringify(v) : v)
 const sql = [
   ...(process.argv.includes('--reset') ? [`DELETE FROM submission_tab WHERE type = ${sqlLit(TYPE)};`] : []),

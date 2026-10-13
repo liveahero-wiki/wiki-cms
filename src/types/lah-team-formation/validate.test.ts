@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateTeamPayload, type TeamSlot } from './validate.ts'
+import { parseTargets, supportMode, validateTeamPayload, type TeamSlot } from './validate.ts'
 import { lahTeamFormation } from './index.ts'
 import { checkExplanation } from '../../shared/markdown-policy.ts'
 import { LANGS } from '../../shared/i18n.ts'
@@ -175,5 +175,80 @@ describe('type def completeness', () => {
       for (const lang of LANGS) expect(tag.label[lang], `${tag.key}.${lang}`).toBeTruthy()
       for (const o of tag.options) for (const lang of LANGS) expect(o.label[lang], `${o.value}.${lang}`).toBeTruthy()
     }
+  })
+})
+
+describe('support modes', () => {
+  const opt = group({ support: 'optional' })
+  it('supportMode maps the group option', () => {
+    expect(supportMode({})).toBe('required')
+    expect(supportMode({ support: true })).toBe('required')
+    expect(supportMode({ support: false })).toBe('none')
+    expect(supportMode({ support: 'optional' })).toBe('optional')
+    expect(supportMode({ support: 'whatever' })).toBe('required')
+  })
+  it('optional: a team may omit the support or name a valid slot', () => {
+    expect(validateTeamPayload({ v: 1, heroes: [slot(1), slot(2)] }, opt).ok).toBe(true)
+    expect(validateTeamPayload({ v: 1, supportIndex: null, heroes: [slot(1), slot(2)] }, opt).ok).toBe(true)
+    expect(validateTeamPayload({ v: 1, supportIndex: 1, heroes: [slot(1), slot(2)] }, opt).ok).toBe(true)
+    expect(codes(validateTeamPayload({ v: 1, supportIndex: 2, heroes: [slot(1), slot(2)] }, opt))).toEqual(['support_out_of_range'])
+  })
+  it('optional: the support slot is still exempt from the duplicate check, a non-support slot is not', () => {
+    expect(validateTeamPayload({ v: 1, supportIndex: 1, heroes: [slot(1), slot(1)] }, opt).ok).toBe(true)
+    expect(codes(validateTeamPayload({ v: 1, heroes: [slot(1), slot(1)] }, opt))).toEqual(['duplicate_hero'])
+  })
+})
+
+describe('targets', () => {
+  const targets = [
+    { id: 'quest-616001', label: { en: 'Simulator (SSS)', ja: 'シミュレーター' }, url: '/guide/challenge_simulator/' },
+    { id: 'rogue-2609', label: { en: 'Unexplored boss' }, retired: true },
+  ]
+  const g = group({ support: 'optional', targets })
+  const run = (target: unknown, gg = g) => validateTeamPayload({ v: 1, heroes: [slot(1)], ...(target === undefined ? {} : { target }) }, gg)
+
+  it('parseTargets keeps valid entries and drops malformed or duplicate ones', () => {
+    const parsed = parseTargets({
+      targets: [
+        ...targets,
+        { id: 'quest-616001', label: { en: 'dup' } },
+        { id: 'Bad Id', label: { en: 'x' } },
+        { id: 'no-label' },
+        { id: 'empty-label', label: { en: ' ' } },
+        'junk',
+      ],
+    })
+    expect(parsed.map((t) => t.id)).toEqual(['quest-616001', 'rogue-2609'])
+    expect(parsed[1]!.retired).toBe(true)
+    expect(parseTargets({})).toEqual([])
+    expect(parseTargets({ targets: 'x' })).toEqual([])
+  })
+  it('target is optional: absent and null mean general purpose and are not stored', () => {
+    for (const t of [undefined, null]) {
+      const r = run(t)
+      expect(r.ok && 'target' in r.value).toBe(false)
+    }
+  })
+  it('accepts a listed target, including a retired one, and stores it', () => {
+    const r = run('quest-616001')
+    expect(r.ok && r.value.target).toBe('quest-616001')
+    expect(run('rogue-2609').ok).toBe(true)
+  })
+  it('rejects unknown ids, non-strings and any target when the group lists none', () => {
+    for (const bad of ['quest-1', 5, '', {}]) expect(codes(run(bad)), String(bad)).toEqual(['target_unknown'])
+    expect(codes(run('quest-616001', group({ support: 'optional' })))).toEqual(['target_unknown'])
+    const r = run('quest-1')
+    if (!r.ok) expect(r.errors[0]!.path).toBe('payload.target')
+  })
+})
+
+describe('type def title and tags', () => {
+  it('requires a title of 4–50 characters and has a default for the team type', () => {
+    expect(lahTeamFormation.title).toMatchObject({ required: true, minLength: 4, maxLength: 50 })
+    for (const lang of LANGS) expect(lahTeamFormation.title!.label[lang], lang).toBeTruthy()
+    const teamType = lahTeamFormation.tags.find((t) => t.key === 'teamType')!
+    expect(teamType.default).toBe('manual')
+    expect(teamType.options.map((o) => o.value)).toContain(teamType.default)
+    expect(lahTeamFormation.tags.map((t) => t.key)).toEqual(['teamType', 'successRate'])
   })
 })

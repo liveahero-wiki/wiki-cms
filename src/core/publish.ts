@@ -10,6 +10,7 @@ import type { ResolvedType } from './types-runtime.ts'
 export interface PublicItem {
   id: string
   createdAt: number
+  title: string
   lang: string
   tags: Record<string, string>
   demoUrl: string
@@ -23,7 +24,7 @@ export interface PublicBlob {
   group: string
   generatedAt: number
   groupOptions: Record<string, unknown>
-  meta: { langs: { value: string; label: string }[]; tags: unknown[] }
+  meta: { langs: { value: string; label: string }[]; tags: unknown[]; title: boolean }
   items: PublicItem[]
 }
 
@@ -38,7 +39,7 @@ export function emptyBlob(typeId: string, rt: ResolvedType, groupId: string, opt
     group: groupId,
     generatedAt: Date.now(),
     groupOptions: options,
-    meta: { langs: rt.def.langs, tags: rt.def.tags },
+    meta: { langs: rt.def.langs, tags: rt.def.tags, title: !!rt.def.title },
     items: [],
   }
 }
@@ -49,6 +50,7 @@ export async function buildBlob(env: Env, typeId: string, rt: ResolvedType, grou
     .select({
       id: submission_tab.id,
       createdAt: submission_tab.createdAt,
+      title: submission_tab.title,
       lang: submission_tab.lang,
       tags: submission_tab.tags,
       demoUrl: submission_tab.demoUrl,
@@ -63,6 +65,7 @@ export async function buildBlob(env: Env, typeId: string, rt: ResolvedType, grou
   blob.items = rows.map((r) => ({
     id: r.id,
     createdAt: r.createdAt,
+    title: r.title,
     lang: r.lang,
     tags: JSON.parse(r.tags),
     demoUrl: r.demoUrl,

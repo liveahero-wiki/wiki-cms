@@ -43,7 +43,7 @@ interface PluginContext {
 
 - `uiLang`: resolved UI language. The plugin owns its own string bundles and **falls back to `en`** for any missing key. Add a unit test that every key of the `en` bundle exists in the other three. The embed also passes the same value to its own UI; the admin portal always passes `'en'`.
 - `theme`: informational snapshot at mount time (`[data-theme]` on `<html>`, else `prefers-color-scheme`). Do not re-render on theme changes; style with CSS (see below).
-- `group.options`: the group's registry options (LAH: `{ support?: boolean; focus?: { kind: 'hero' | 'sidekick'; stockId: number } }`; `support` defaults to `true` when absent). **Never parse `group.id`**; everything the plugin needs is in `options`. In the embed it comes from the list blob (`groupOptions`), in the admin portal from the submission's group.
+- `group.options`: the group's registry options. They are type-specific and opaque to the core (LAH: `{ support?: boolean | 'optional'; focus?: { kind: 'hero' | 'sidekick'; stockId: number }; targets?: Target[] }`; `support` absent or `true` means a borrowed support is required, `false` that none is allowed, `'optional'` that it may be left out; see [Type-specific group options](#type-specific-group-options-lah-targets)). **Never parse `group.id`**; everything the plugin needs is in `options`. In the embed it comes from the list blob (`groupOptions`), in the admin portal from the submission's group.
 
 ## Mount lifecycle and cleanup
 
@@ -58,6 +58,46 @@ All mount functions are framework-agnostic: DOM element in, cleanup out. The hos
   - `EditorHandle.validate(): FieldError[]`: client-side mirror of the server rules. The form calls it before submitting and blocks the submit if it returns errors (it then calls `setErrors` with them). Keep it in sync with `src/types/<type>/validate.ts`.
   - `EditorHandle.setErrors(errors)`: render the given errors inline (replace any previous ones). `[]` clears them. The form calls it with the `payload` / `payload.*` entries of the server's `validation_failed.error.fields`, and clears it when the user edits the team again.
 - The editor should be usable at 360 px width, keyboard accessible, and must not trap the `Esc` key of the surrounding `<dialog>` (nested dialogs of your own may handle `Esc` themselves).
+
+## Optional: `listFilter` (catalog layout)
+
+A plugin may add game-specific filters and sorts to the embed's `catalog` layout (`data-cms-layout="catalog"`, `docs/EMBED.md`) by exporting `listFilter` (`ListFilter<P, S>` in `src/shared/plugin-api.ts`). It is optional and backward compatible (`apiVersion` stays 1): without it only the core filters (title search, tags, language, sort) are offered. The core treats the state `S` as opaque.
+
+| Member | Contract |
+|---|---|
+| `init(params, ctx): S` | Initial state from the hash params the plugin owns (the core reserves `q`, `sort`, `lang` and `t.*`). Called after `prepare()`, on `hashchange`, and with empty params for "Clear filters". |
+| `toParams(state)` | The **non-default** values as hash params. An empty result means "no plugin filter is active" (the core uses that to show "Clear filters"). |
+| `prepare?()` | Awaited once before the first filtering (load the roster here). A rejection is logged and ignored. |
+| `mount(el, part, state, onChange, ctx)` | Render the controls of `'basic'` (next to the search box, always visible) or `'advanced'` (inside the collapsible panel; mounted even while collapsed) into `el`. Returns `{ update(state), destroy() }`. `update` is called on every state change, including the echo of your own `onChange` and "Clear filters": keep it idempotent and never call `onChange` from it. Both parts are destroyed and remounted when the UI language (`ctx.uiLang`) changes. |
+| `test(payload, state)` | Pure and cheap; the payload is the published, server-validated JSON. |
+| `activeCount(state)` | Active filters of the **advanced** part only (badge on the core's "Advanced filters" toggle). |
+| `sorts?` | `{ key, label(lang), compare(a, b) }[]` over payloads. The key is written as `sort=<key>`. Ties are broken by newest first. |
+
+Errors thrown by `init`, `test`, `compare`, `toParams` or `activeCount` are caught: the item counts as matching, and the error is logged once. The core stylesheet's generic classes (`cms-chip`, `cms-chip-btn` + `cms-active` with `aria-pressed`, `cms-btn`, `cms-input`, `cms-label`, `cms-hint`) and theme variables may be reused inside your parts; the LAH plugin ships its own self-contained `cms-lah-*` styles instead.
+
+## Type-specific group options (LAH `targets`)
+
+The wiki's registry (`/api/cms-groups.json`) gives each group a free-form `options` object that the core passes untouched to the validator, the plugin and the blob (`groupOptions`). The LAH Team Creator uses one group, `all`:
+
+```jsonc
+"all": {
+  "title": "Team Creator", "url": "/team-creator.html",
+  "options": {
+    "support": "optional",
+    "targets": [
+      { "id": "quest-616001", "label": { "en": "Simulator - Lantern-type Kaibutsu (SSS)", "ja": "…" }, "url": "/guide/challenge_simulator/" },
+      { "id": "quest-605001", "label": { "en": "…" }, "retired": true }
+    ]
+  }
+}
+```
+
+- `id` matches `^[a-z0-9][a-z0-9-]{0,63}$`, is unique and **permanent** (stored in payloads and links). By convention `quest-<questId>` or `rogue-<event>`; nothing outside the wiki relies on that.
+- `label`: one or more of the four languages; the plugin falls back from the UI language to `en`, then `ja`, then any language present. `url` optionally links the target chip. `retired: true` hides the target from the submit form but keeps it valid and filterable. **Never delete** a target that rows use (they would fail validation when a moderator edits them): retire it.
+- `payload.target` is optional (absent or `null` = general purpose) and must be the `id` of a listed entry, otherwise the validator reports `target_unknown` at `payload.target`. The core never interprets the id.
+- The array order is the order of the picker and the filter.
+- Adding or renaming a target is a **wiki-only change**: the hourly cron refetches the registry, sees that `all`'s options changed and republishes the blob. To make it live at once run `cms republish --type lah-team-formation`.
+- The wiki repo's `docs/CMS.md` is the source of truth for how front matter turns into targets.
 
 ## Field errors (`FieldError`)
 
