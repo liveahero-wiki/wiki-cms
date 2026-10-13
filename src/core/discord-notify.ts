@@ -52,7 +52,11 @@ export async function notifyNewSubmission(
       }),
       signal: AbortSignal.timeout(3000),
     })
-    if (!res.ok) console.warn('discord notify: webhook returned', res.status)
+    if (!res.ok) {
+      // Discord's error JSON ({ message, code }) never echoes the webhook token; cap it anyway.
+      const detail = (await res.text().catch(() => '')).slice(0, 200)
+      console.warn('discord notify: webhook returned', res.status, detail)
+    }
   } catch {
     console.warn('discord notify: failed')
   }
