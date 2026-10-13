@@ -446,10 +446,13 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
               </span>
             </div>
             <input
+              key={v.lang}
               id="cms-title"
               class="cms-input"
               data-field="title"
               type="text"
+              lang={v.lang}
+              spellcheck
               autocomplete="off"
               maxLength={cfg.title.maxLength * 2}
               placeholder={cfg.title.placeholder ? pickText(cfg.title.placeholder, L) : undefined}
@@ -570,6 +573,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
           </div>
           {tab === 'write' ? (
             <textarea
+              key={v.lang}
               id="cms-expl"
               class="cms-input cms-textarea"
               data-field="explanation"
