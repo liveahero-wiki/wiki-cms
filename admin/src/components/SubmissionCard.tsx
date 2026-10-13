@@ -84,6 +84,7 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
   const [busy, setBusy] = useState(false)
   const [conflict, setConflict] = useState(false)
   const [detail, setDetail] = useState(false)
+  const [showExplanation, setShowExplanation] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
   const [Edit, setEdit] = useState<typeof import('./EditDialog.tsx').EditDialog | null>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -212,7 +213,12 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
         )}
       </div>
 
-      <Explanation html={item.explanationHtml} />
+      <div class="card-explanation">
+        <button type="button" class="btn-link" aria-expanded={showExplanation} onClick={() => setShowExplanation((v) => !v)}>
+          {showExplanation ? 'Hide explanation' : 'Show explanation'}
+        </button>
+        {showExplanation && <Explanation html={item.explanationHtml} />}
+      </div>
 
       <p class="meta-line">
         <span>
