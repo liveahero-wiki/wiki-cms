@@ -159,6 +159,19 @@ describe('roster soft check', () => {
     expect(validateTeamPayload({ v: 1, heroes: [slot(2, { active: 9 })] }, g, { roster }).ok).toBe(true)
     expect(validateTeamPayload(p, g, { roster: { nonsense: true } }).ok).toBe(true)
   })
+  it('passives may be roster items (itemId), skipping the same-character rule; unknown ids still fail', () => {
+    const withItems = { heroes: [{ stockId: 2, characterId: 1 }], sidekicks: [{ stockId: 9, characterId: 1 }], items: [{ itemId: 65 }, { itemId: 66 }] }
+    const run = (passives: number[], r: unknown = withItems) => validateTeamPayload({ v: 1, heroes: [slot(2, { passives })] }, g, { roster: r })
+    expect(run([65, 66]).ok).toBe(true)
+    expect(codes(run([65, 67]))).toEqual(['unknown_sidekick'])
+    // a roster from before items existed cannot vouch for an item id
+    expect(codes(run([65], { heroes: withItems.heroes, sidekicks: withItems.sidekicks }))).toEqual(['unknown_sidekick'])
+  })
+  it('the same item is a duplicate within one hero but fine across heroes', () => {
+    const items = { heroes: [{ stockId: 1 }, { stockId: 2 }], sidekicks: [{ stockId: 9 }], items: [{ itemId: 65 }] }
+    expect(codes(validateTeamPayload({ v: 1, heroes: [slot(1, { passives: [65, 65] })] }, g, { roster: items }))).toEqual(['passives_duplicate'])
+    expect(validateTeamPayload({ v: 1, heroes: [slot(1, { passives: [65, 9] }), slot(2, { passives: [65] })] }, g, { roster: items }).ok).toBe(true)
+  })
 })
 
 describe('type def completeness', () => {
