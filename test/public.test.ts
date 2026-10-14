@@ -37,6 +37,25 @@ describe('POST /api/v1/submissions', () => {
     expect(res.headers.get('Cache-Control')).toBe('private, no-store')
   })
 
+  it('accepts an external https link and stores it with the visible host', async () => {
+    const res = await post(h, 'quest-1', submitBody({ explanation: 'Full guide: [my guide](https://www.notion.so/guide?utm_source=x)' }))
+    expect(res.status).toBe(202)
+    const html = String((await rows())[0]!.explanation_html)
+    expect(html).toContain('<a class="cms-ext" href="https://www.notion.so/guide" target="_blank" rel="noopener noreferrer nofollow ugc">my guide <span class="cms-ext-host">notion.so ↗</span></a>')
+  })
+
+  it('rejects deceptive, shortened and surplus links with specific codes', async () => {
+    const codes = async (explanation: string) => {
+      const res = await post(h, 'quest-1', submitBody({ explanation }))
+      expect(res.status).toBe(400)
+      return ((await res.json()) as { error: { fields: { code: string }[] } }).error.fields.map((f) => f.code)
+    }
+    expect(await codes('[youtube.com](https://evil.example.org/x)')).toEqual(['md_link_text'])
+    expect(await codes('[go](https://bit.ly/abc)')).toEqual(['md_link_invalid'])
+    expect(await codes('[1](https://a.example.com) [2](https://b.example.com) [3](https://c.example.com) [4](https://d.example.com)')).toEqual(['md_link_limit'])
+    expect(await rows()).toHaveLength(0)
+  })
+
   it('rejects a bad or missing Origin with 403', async () => {
     expect((await post(h, 'quest-1', submitBody(), { Origin: 'https://evil.example' })).status).toBe(403)
     const res = await h.fetch(`/api/v1/submissions/${TYPE}/quest-1`, { method: 'POST', body: JSON.stringify(submitBody()) })
@@ -64,14 +83,14 @@ describe('POST /api/v1/submissions', () => {
       tags: {},
       title: '',
       lang: 'xx',
-      explanation: 'see [a](http://x)',
+      explanation: 'see [a](http://x.example.com)',
       demoUrl: 'https://evil.com/v',
     }))
     expect(res.status).toBe(400)
     const { error } = (await res.json()) as { error: { fields: { path: string; code: string }[] } }
     const got = error.fields.map((f) => `${f.path}:${f.code}`).sort()
     expect(got).toEqual(
-      ['demoUrl:demo_host', 'explanation:md_link', 'lang:lang_invalid', 'payload.supportIndex:support_not_allowed', 'tags.successRate:tag_required', 'tags.teamType:tag_required', 'title:title_required'].sort(),
+      ['demoUrl:demo_host', 'explanation:md_link_invalid','lang:lang_invalid', 'payload.supportIndex:support_not_allowed', 'tags.successRate:tag_required', 'tags.teamType:tag_required', 'title:title_required'].sort(),
     )
     expect(await rows()).toHaveLength(0)
   })

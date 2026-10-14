@@ -1,3 +1,4 @@
+import { DOMAIN_RE } from './link-policy.ts'
 import { LINK_RE } from './markdown-policy.ts'
 import type { FieldError } from './plugin-api.ts'
 
@@ -8,8 +9,6 @@ export interface TitleRules {
   maxLength: number
 }
 
-// Bare domains such as "example.com" or "foo.gg/bar" (a short list of common TLDs keeps "Lv.60" and "No.1" legal).
-const DOMAIN_RE = /\b[a-z0-9-]{2,}\.(?:com|net|org|io|gg|jp|cn|tv|me|co|xyz|info|ly|to|app|dev|link|site|top|cc|ru)\b/i
 // eslint-disable-next-line no-control-regex
 const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff]/
 

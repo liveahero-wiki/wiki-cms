@@ -25,7 +25,7 @@ describe('embed i18n bundles', () => {
 
   it('covers every generic field error code and top-level API code', () => {
     const fieldCodes = [
-      'lang_invalid', 'tag_required', 'tag_invalid', 'explanation_required', 'explanation_too_long', 'md_html', 'md_link',
+      'lang_invalid', 'tag_required', 'tag_invalid', 'explanation_required', 'explanation_too_long', 'md_html', 'md_link', 'md_link_invalid', 'md_link_text', 'md_link_limit',
       'demo_required', 'demo_too_long', 'demo_invalid', 'demo_https', 'demo_host', 'payload_invalid', 'payload_too_large',
       'title_required', 'title_too_short', 'title_too_long', 'title_link', 'title_invalid',
     ]

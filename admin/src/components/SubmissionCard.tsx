@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { AdminSubmission, ModerationResponse, SubmissionState } from '../../../src/shared/api-types.ts'
 import type { PluginContext } from '../../../src/shared/plugin-api.ts'
 import { ApiError, api, errorMessage } from '../api.ts'
@@ -25,9 +25,33 @@ function PayloadView({ kind, payload, groupId }: { kind: 'summary' | 'detail'; p
   return <PluginView kind={kind} plugin={td.plugin.plugin} payload={payload} ctx={ctx} />
 }
 
+/** Full destinations of the external links in a rendered explanation (the badge only shows the host). */
+function externalLinks(html: string): string[] {
+  if (!html.includes('cms-ext')) return []
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return [...doc.querySelectorAll<HTMLAnchorElement>('a.cms-ext')].map((a) => a.getAttribute('href') ?? '')
+}
+
 function Explanation({ html }: { html: string }) {
-  // Safe: the Worker rendered it with raw HTML, links and images disabled.
-  return <div class="prose" dangerouslySetInnerHTML={{ __html: html }} />
+  // Safe: the Worker rendered it with raw HTML and images disabled; only validated https links get an <a>.
+  const links = useMemo(() => externalLinks(html), [html])
+  return (
+    <>
+      <div class="prose" dangerouslySetInnerHTML={{ __html: html }} />
+      {links.length > 0 && (
+        <div class="ext-links" role="note">
+          <strong>External links ({links.length}) — check before approving:</strong>
+          <ul>
+            {links.map((href, i) => (
+              <li key={i}>
+                <code>{href}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  )
 }
 
 function OriginalPanel({ original }: { original: NonNullable<AdminSubmission['original']> }) {

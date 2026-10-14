@@ -11,8 +11,8 @@ describe('markdown policy', () => {
     ['<b>x</b>', 'md_html'],
     ['<!-- c -->', 'md_html'],
     ['<!DOCTYPE html>', 'md_html'],
-    ['[a](http://x)', 'md_link'],
-    ['[a]: http://x', 'md_link'],
+    ['[a](http://example.com)', 'md_link_invalid'],
+    ['[a]: https://example.com', 'md_link'],
     ['![i](x)', 'md_link'],
     ['<https://x.com>', 'md_link'],
     ['see https://example.com now', 'md_link'],
@@ -41,6 +41,75 @@ describe('markdown policy', () => {
   })
   it('renders lists and emphasis', () => {
     expect(renderExplanation('- a\n- b\n\n**bold**')).toMatch(/<ul>[\s\S]*<strong>bold<\/strong>/)
+  })
+})
+
+describe('markdown policy: external links', () => {
+  const codes = (src: string) => checkExplanation(src).map((e) => e.code)
+
+  it('accepts inline https links and renders them with the real host', () => {
+    const src = 'Guide: [full **guide**](https://www.notion.so/team/abc?utm_source=x&page=2#top) here'
+    expect(checkExplanation(src)).toEqual([])
+    expect(renderExplanation(src)).toContain(
+      '<a class="cms-ext" href="https://www.notion.so/team/abc?page=2" target="_blank" rel="noopener noreferrer nofollow ugc">' +
+        'full <strong>guide</strong> <span class="cms-ext-host">notion.so ↗</span></a>',
+    )
+  })
+
+  it('accepts up to 3 links and rejects the 4th', () => {
+    const l = (n: number) => `[g${n}](https://example.com/${n})`
+    expect(checkExplanation([1, 2, 3].map(l).join(' '))).toEqual([])
+    expect(codes([1, 2, 3, 4].map(l).join(' '))).toEqual(['md_link_limit'])
+    expect(checkExplanation([1, 2, 3, 4].map(l).join(' '))[0]!.params).toEqual({ max: 3 })
+  })
+
+  const invalid = [
+    '[a](http://example.com)',
+    '[a](javascript:alert(1))',
+    '[a](//example.com)',
+    '[a](/relative)',
+    '[a](https://127.0.0.1/x)',
+    '[a](https://[::1]/x)',
+    '[a](https://2130706433/x)',
+    '[a](https://user:pw@example.com/)',
+    '[a](https://example.com:8443/)',
+    '[a](https://xn--e1awd7f.com/)',
+    '[a](https://bit.ly/abc)',
+    '[a](https://localhost/)',
+    '[a](https://intranet/)',
+    '[a](https://' + 'a'.repeat(200) + '.com/)',
+  ]
+  for (const src of invalid) {
+    it(`rejects ${src.slice(0, 40)}`, () => expect(codes(src).length).toBeGreaterThan(0))
+  }
+
+  it('rejects link text that impersonates another site or is empty', () => {
+    expect(codes('[youtube.com](https://evil.example.org/x)')).toEqual(['md_link_text'])
+    expect(codes('[https://youtube.com](https://example.org/x)')).toEqual(['md_link_text'])
+    expect(codes('[ ](https://example.org/x)')).toEqual(['md_link_text'])
+    expect(codes('[' + 'x'.repeat(81) + '](https://example.org/x)')).toEqual(['md_link_text'])
+    expect(codes('[youtube.com](https://www.youtube.com/watch?v=1)')).toEqual([])
+  })
+
+  it('still rejects bare URLs, autolinks, images and reference links', () => {
+    for (const src of ['see https://example.com', 'www.example.com', '<https://example.com>', '![i](https://example.com/a.png)', '[a][1]\n\n[1]: https://example.com']) {
+      expect(codes(src), src).toContain('md_link')
+    }
+    expect(codes('`https://example.com`')).toContain('md_link')
+  })
+
+  it('never emits an unvalidated or surplus <a>, even if the check is bypassed', () => {
+    const html = renderExplanation('[a](javascript:alert(1)) [b](http://example.com) [c](https://bit.ly/x) [d](https://1.example.com) [e](https://2.example.com) [f](https://3.example.com) [g](https://4.example.com)')
+    expect(html.match(/<a /g)).toHaveLength(3)
+    expect(html).not.toMatch(/href="(?!https:\/\/[123]\.example\.com)/)
+    expect(html).not.toMatch(/http:\/\/|bit\.ly|4\.example\.com"/)
+    expect(html).toContain(' g</p>')
+  })
+
+  it('escapes link text and host', () => {
+    const html = renderExplanation('[a & <b>](https://example.com/?q=1&r=2)')
+    expect(html).toContain('a &amp; &lt;b&gt;')
+    expect(html).toContain('href="https://example.com/?q=1&amp;r=2"')
   })
 })
 

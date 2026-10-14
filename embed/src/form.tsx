@@ -2,6 +2,7 @@ import { render } from 'preact'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { SubmitRequest, TypeConfig } from '../../src/shared/api-types.ts'
 import { pickText } from '../../src/shared/i18n.ts'
+import { MAX_LINKS } from '../../src/shared/link-policy.ts'
 import { checkExplanation, renderExplanation } from '../../src/shared/markdown-policy.ts'
 import { checkTitle, titleLength, normalizeTitle } from '../../src/shared/title-policy.ts'
 import type { EditorHandle, FieldError, SubmissionPlugin } from '../../src/shared/plugin-api.ts'
@@ -596,7 +597,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
           )}
           <div class="cms-under">
             <p class="cms-hint" id="cms-expl-hint">
-              {t(L, 'form.markdownHint')}
+              {t(L, 'form.markdownHint', { max: MAX_LINKS })}
             </p>
             <span id="cms-expl-count" class={`cms-counter${explLen > max ? ' cms-over' : ''}`}>
               {explLen} / {max}

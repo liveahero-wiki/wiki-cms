@@ -108,6 +108,7 @@ function Explanation({ html, lang, uiLang }: { html: string; lang: Lang; uiLang:
       <div id={id} class="cms-expl" lang={lang} hidden={!open}>
         {/* Server-rendered with HTML disabled (src/shared/markdown-policy.ts). */}
         {open && <div dangerouslySetInnerHTML={{ __html: html }} />}
+        {open && html.includes('class="cms-ext"') && <p class="cms-ext-note">{t(uiLang, 'card.extLinksNote')}</p>}
       </div>
     </div>
   )

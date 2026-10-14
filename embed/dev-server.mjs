@@ -80,7 +80,9 @@ const demos = ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'https://x.com/som
 const rates = ['high', 'medium', 'low']
 const NAMES = ['SSS Lantern auto clear', 'Parallel Quartz S – 2 turns', 'ランタン型 3ターン攻略', '灯笼型 稳定通关', 'HDQ event boss', 'Budget team, no limited heroes', 'Fast manual run', '燈籠型 低成本隊伍']
 const langCycle = ['en', 'en', 'ja', 'zh-Hans', 'en', 'zh-Hant']
-const shortHtml = '<h3>Overview</h3><p>Clear in <strong>3 turns</strong> with <em>no RNG</em>.</p><ul><li>Hero A first</li><li>Then the support</li></ul>'
+const shortHtml =
+  '<h3>Overview</h3><p>Clear in <strong>3 turns</strong> with <em>no RNG</em>.</p><ul><li>Hero A first</li><li>Then the support</li></ul>' +
+  '<p>Full guide: <a class="cms-ext" href="https://www.notion.so/lah-guide" target="_blank" rel="noopener noreferrer nofollow ugc">my guide <span class="cms-ext-host">notion.so ↗</span></a></p>'
 const longHtml =
   '<h3>Overview</h3><p>This formation clears the quest in a handful of turns. Read the notes carefully before copying it.</p>' +
   '<h4>Key heroes &amp; sidekicks</h4><ul>' +
