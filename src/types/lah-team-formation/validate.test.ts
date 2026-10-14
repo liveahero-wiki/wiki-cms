@@ -58,6 +58,11 @@ describe('passives', () => {
     expect(codes(validateTeamPayload({ v: 1, heroes: [slot(1, { bloom: true, passives: [2, 3, 4, 5] })] }, g))).toContain('passives_too_many')
     expect(codes(validateTeamPayload({ v: 1, heroes: [slot(1, { passives: [2, 2] })] }, g))).toContain('passives_duplicate')
   })
+  it('skill tree requires bloom', () => {
+    const g = group({ support: false })
+    expect(codes(validateTeamPayload({ v: 1, heroes: [slot(1, { skillTree: true })] }, g))).toContain('bloom_required')
+    expect(validateTeamPayload({ v: 1, heroes: [slot(1, { skillTree: true, bloom: true })] }, g).ok).toBe(true)
+  })
   it('allows the same passive across different slots', () => {
     const r = validateTeamPayload({ v: 1, heroes: [slot(1, { passives: [9] }), slot(2, { passives: [9] })] }, group({ support: false }))
     expect(r.ok).toBe(true)
