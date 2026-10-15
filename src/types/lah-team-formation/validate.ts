@@ -4,6 +4,8 @@ export interface TeamSlot {
   stockId: number
   lv: number
   plv: number
+  /** Parallel Weapon form (itemId 60-63); present exactly when `plv` > 0 (default Base Design). */
+  pwForm?: number
   fans: number
   engrave: number
   bloom: boolean
@@ -21,6 +23,10 @@ export interface TeamPayload {
 }
 
 const MAX_SLOTS = 5
+
+/** Parallel Weapon forms by itemId: Base / Attack / Physical / Guard Design. */
+const PW_FORMS: readonly number[] = [60, 61, 62, 63]
+const DEFAULT_PW_FORM = 60
 
 const err = (path: string, code: string, message: string, params?: FieldError['params']): FieldError => ({
   path,
@@ -175,16 +181,24 @@ export function validateTeamPayload(
     }
     const stockId = readStockId(errors, `${p}.stockId`, raw.stockId)
     const bloom = readBool(errors, `${p}.bloom`, raw.bloom)
+    const plv = readInt(errors, `${p}.plv`, raw.plv, 0, 0, 100)
     const slot: TeamSlot = {
       stockId: stockId ?? 0,
       lv: readInt(errors, `${p}.lv`, raw.lv, 60, 1, 60),
-      plv: readInt(errors, `${p}.plv`, raw.plv, 0, 0, 100),
+      plv,
       fans: readInt(errors, `${p}.fans`, raw.fans, 0, 0, 1000),
       engrave: readInt(errors, `${p}.engrave`, raw.engrave, 0, 0, 1000),
       bloom,
       skillTree: readBool(errors, `${p}.skillTree`, raw.skillTree),
       active: null,
       passives: [],
+    }
+    // Parallel Weapon form: kept only with P.Lv > 0 (default Base Design); ignored otherwise.
+    if (plv > 0) {
+      const f = raw.pwForm
+      if (f === undefined || f === null) slot.pwForm = DEFAULT_PW_FORM
+      else if (isInt(f) && PW_FORMS.includes(f)) slot.pwForm = f
+      else errors.push(err(`${p}.pwForm`, 'pw_form_invalid', 'Must be one of the Parallel Weapon forms.'))
     }
     if (raw.active !== undefined && raw.active !== null) slot.active = readStockId(errors, `${p}.active`, raw.active)
     if (slot.active !== null && slot.active === stockId) {

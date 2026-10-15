@@ -35,6 +35,15 @@ describe('payload basics', () => {
       expect(codes(r)).toContain('int_range')
     }
   })
+  it('keeps pwForm only with P.Lv > 0 (default Base Design) and rejects unknown forms', () => {
+    const run = (extra: Record<string, unknown>) => validateTeamPayload({ v: 1, heroes: [slot(1, extra as Partial<TeamSlot>)] }, group({ support: false }))
+    const form = (r: ReturnType<typeof run>) => (r.ok ? r.value.heroes[0].pwForm : 'error')
+    expect(form(run({ plv: 0, pwForm: 62 }))).toBeUndefined()
+    expect(form(run({ plv: 5 }))).toBe(60)
+    expect(form(run({ plv: 5, pwForm: 63 }))).toBe(63)
+    expect(codes(run({ plv: 5, pwForm: 64 }))).toContain('pw_form_invalid')
+    expect(codes(run({ plv: 5, pwForm: '61' }))).toContain('pw_form_invalid')
+  })
   it('rejects non-positive stock ids and non-boolean flags', () => {
     expect(codes(validateTeamPayload({ v: 1, heroes: [slot(0)] }, group({ support: false })))).toContain('stock_id_invalid')
     expect(codes(validateTeamPayload({ v: 1, heroes: [{ stockId: 1, bloom: 'yes' }] }, group({ support: false })))).toContain('bool_invalid')
