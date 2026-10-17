@@ -78,7 +78,7 @@ plugin from the wiki. If you add a type whose plugin is hosted elsewhere, add th
 
 ### Team Creator rollout (one-off)
 
-The move from per-page groups to the single `all` group is described in `docs/TEAM_CREATOR_PLAN.md` ("Rollout"). The Worker side, in order (each `--remote` step is a deploy step; nothing here runs without being asked):
+The move from per-page groups to the single `all` group, with its four phases and the wiki-side steps, is described in [TEAM_CREATOR.md](TEAM_CREATOR.md#rollout-one-off). The Worker side, in order (each `--remote` step is a deploy step; nothing here runs without being asked):
 
 1. The wiki must already publish a registry that contains `all` (with `options.targets`).
 2. `pnpm db:migrate:remote` (adds the `title` column), then `pnpm deploy` (`PUBLISH_REV` 2: new blob shape, type def and embed).

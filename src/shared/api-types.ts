@@ -1,4 +1,4 @@
-// Copied verbatim into lah-wiki `web/cms-plugin/api-types.ts`; the public blob types are a contract with the wiki (docs/TEAM_CREATOR_WIKI_UI_PLAN.md W8).
+// Copied verbatim into lah-wiki `web/cms-plugin/api-types.ts`; the public blob types are a contract with the wiki (docs/TEAM_CREATOR.md, "The blob is a contract with the wiki").
 // Request/response DTOs shared by the Worker, the embed and the admin portal. Pure types, no runtime imports.
 import type { I18nText, Lang } from './i18n.ts'
 import type { FieldError } from './plugin-api.ts'

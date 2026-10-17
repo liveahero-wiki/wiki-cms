@@ -53,7 +53,7 @@ wiki-cms/
 ├── public/_headers         # static asset headers (CORS, caching, admin CSP)
 ├── scripts/                # dev helpers and the post-deploy cache smoke test
 ├── test/                   # Worker tests (run inside workerd)
-└── docs/                   # SETUP, EMBED, ADMIN, PLUGIN_API, IMPLEMENTATION_PLAN
+└── docs/                   # SETUP, EMBED, ADMIN, PLUGIN_API, ARCHITECTURE, TEAM_CREATOR
 ```
 
 Vite builds both front ends into `dist/public/` (admin at the root, embed under `/embed/`); `wrangler.jsonc` serves that directory as Static Assets.
@@ -119,6 +119,8 @@ The groups registry and plugin must already be published on <https://liveahero-w
 | [`docs/EMBED.md`](docs/EMBED.md) | Host markup, lazy loading, HTTP caching, UI language (`cms:lang`), theming |
 | [`docs/PLUGIN_API.md`](docs/PLUGIN_API.md) | Plugin contract (v1) that a wiki implements for its submission type |
 | [`docs/ADMIN.md`](docs/ADMIN.md) | Admin portal development, plugin loading and the dev override |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Design rationale: free-tier budget, Workers Cache facts, submit pipeline, auth model, product decisions |
+| [`docs/TEAM_CREATOR.md`](docs/TEAM_CREATOR.md) | LAH Team Creator: decisions, wiki contracts, team rules, data migration, rollout |
 
 Wiki side: [`docs/CMS.md`](https://github.com/liveahero-wiki/liveahero-wiki.github.io/blob/master/docs/CMS.md) in [liveahero-wiki.github.io](https://github.com/liveahero-wiki/liveahero-wiki.github.io).
 

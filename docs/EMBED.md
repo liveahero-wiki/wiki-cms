@@ -96,7 +96,7 @@ Explanations may contain up to 3 inline links `[text](https://…)` (`src/shared
 
 ## Opening the submit form from your own UI
 
-A wiki may draw its own list from the public blob (the LAH Team Creator page does: `docs/TEAM_CREATOR_WIKI_UI_PLAN.md`) (`GET /api/v1/submissions/{type}/{group}`; its shape in `src/shared/api-types.ts` is a contract, see `docs/TEAM_CREATOR_WIKI_UI_PLAN.md` W8) and still use this embed's form. `v1.js` sets `window.cmsEmbed.openForm(options)`; `window.cmsEmbed()` is still callable (it re-scans hosts).
+A wiki may draw its own list from the public blob (`GET /api/v1/submissions/{type}/{group}`; its shape in `src/shared/api-types.ts` is a contract, see [TEAM_CREATOR.md](TEAM_CREATOR.md#the-blob-is-a-contract-with-the-wiki); the LAH Team Creator page does exactly this) and still use this embed's form. `v1.js` sets `window.cmsEmbed.openForm(options)`; `window.cmsEmbed()` is still callable (it re-scans hosts).
 
 ```ts
 interface OpenFormOptions {

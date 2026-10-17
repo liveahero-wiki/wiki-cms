@@ -1,4 +1,4 @@
--- One-off, game-specific data migration for the Team Creator (docs/TEAM_CREATOR_PLAN.md, "Data migration").
+-- One-off, game-specific data migration for the Team Creator (docs/TEAM_CREATOR.md, "Data migration").
 -- Idempotent: safe to run again to sweep rows that arrived in an old group during the deploy gap.
 --   wrangler d1 execute wiki_cms_db --local  --file scripts/data/2026-10-team-creator.sql
 --   wrangler d1 execute wiki_cms_db --remote --file scripts/data/2026-10-team-creator.sql   (a deploy step: ask first)
