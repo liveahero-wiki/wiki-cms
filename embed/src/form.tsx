@@ -756,7 +756,8 @@ function Shell({ args, dialog, dispose }: { args: FormArgs; dialog: HTMLDialogEl
         </button>
       </div>
       {cfg && plugin ? (
-        // Edits always need the account; new submissions only when the type requires one.
+        // Edits always need the account; new submissions only when the type requires one. A signed-in contributor
+        // always submits through the account (so the row is theirs), even while the type still allows anonymous posts.
         (args.edit || cfg.submitAuth === 'account') && !session ? (
           <SignInGate api={args.opts.api} lang={L} onCancel={plainClose} />
         ) : (
@@ -765,7 +766,7 @@ function Shell({ args, dialog, dispose }: { args: FormArgs; dialog: HTMLDialogEl
             cfg={cfg}
             plugin={plugin}
             args={args}
-            session={args.edit || cfg.submitAuth === 'account' ? session : null}
+            session={session}
             close={plainClose}
             setClose={(fn) => (closeFn.current = fn)}
           />
