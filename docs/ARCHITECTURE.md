@@ -87,12 +87,23 @@ The wiki publishes the list of valid groups and their `options` as JSON (`groups
 ## Moderators and auth
 
 - Moderators sign in with Discord through BetterAuth, requesting the **`identify` scope only**. BetterAuth's user table requires an email, so a synthetic `discord-<id>@users.invalid` is stored and never displayed.
-- Anyone with a Discord account can create a `user` row by signing in; that grants nothing, because authorization is the `moderator_permission_tab` rows (per submission type). Housekeeping deletes users with no permission and no claimed invite after 24 h.
+- Anyone with a Discord account can create a `user` row by signing in; that grants nothing, because authorization is the `moderator_permission_tab` rows (per submission type). Housekeeping deletes users with no permission, no claimed invite, no contributor profile and no submissions after 24 h.
 - Permissions are re-read on every admin request, so revocation is immediate.
 - Invite links: the token is only ever in the link (SHA-256 hash stored), 24 h, single use, claimed atomically. At claim time the inviter must **still** hold every type, and only the intersection is granted. Moderators cannot invite for types they lack. Revoking a moderator is CLI-only.
 - Mutating admin routes require a JSON content type and `Origin === PUBLIC_URL` (CSRF). `/api/internal/*` takes a bearer `CLI_TOKEN` and never a session.
 - Every moderator or CLI action writes an audit row; housekeeping writes one summary row, only when it deleted something.
 - Admin CSP lives in `public/_headers` and lists the wiki origin as the only external script/connect source (the admin imports the plugin from `plugin_url`).
+
+## Contributor accounts
+
+Sign-in for submitters (and, later, other contributors) is separate from moderator auth. The wiki is on `github.io` and the Worker on `workers.dev`, both on the Public Suffix List, so the Worker cookie never reaches wiki pages. The session is therefore handed over explicitly:
+
+- The wiki page opens a **popup** at `/api/contrib/auth/start` (Worker-rendered HTML; only `/api/*` runs worker-first, so it cannot live under `/contrib/*`). It starts the BetterAuth social sign-in; the callback is `/api/contrib/auth/done`, which mints an **opaque bearer token** and `postMessage`s it to `window.opener` with the wiki origin as `targetOrigin` (never `*`; the origin must be in some enabled type's `allowed_origins`).
+- Tokens are 32 random bytes with a `cct_` prefix; only the SHA-256 is stored (`contrib_token_tab`, 30 days, deleted on sign-out and by housekeeping). They are **not** BetterAuth sessions and BetterAuth's `bearer` plugin is deliberately not used: `/api/admin/*` only reads the cookie session, so a token leaked from a wiki page has contributor power only. `/api/contrib/*` accepts only `Authorization: Bearer`, ignores cookies (no CSRF surface) and has CORS for allowed wiki origins without credentials.
+- **Account-age gate:** when a user first becomes a contributor the provider account must be at least `CONTRIB_MIN_ACCOUNT_AGE_DAYS` (30) old (Discord: from the snowflake id; unknown age fails closed). Enforced in `/auth/done`, not in BetterAuth hooks, so moderator invites are unaffected. A too-young sign-in leaves no contributor row and the fresh `user` row is removed.
+- Providers are a registry (`src/core/providers.ts`: id, label, configured, `accountCreatedAt`). Only Discord is wired; Reddit/X/GitHub = a registry entry, a `socialProviders` entry in `auth.ts` and secrets. Account linking across providers is not implemented.
+- `contributor_tab` holds the display name (editable, shown to moderators) and a reserved `trust_level`. A type with `submit_auth = 'account'` (`cms type update <id> --submit-auth account`) refuses anonymous POSTs with 401 `account_required`.
+- **Editing:** a contributor can edit only their own submission (`submission_tab.user_id`; legacy anonymous rows have none until a moderator assigns an owner). A never-published row is updated in place; a published row gets a **pending revision** (`submission_revision_tab`, at most one open per submission) and the published version stays live until a moderator approves it (approve copies the fields over, keeps `original`, republishes). The public blob never exposes owner or revision data. Creates/edits go through the same checks as anonymous submits (Origin, honeypot, IP block, rate limiter, Turnstile, caps) plus a per-contributor daily cap.
 
 ## Localization
 
@@ -105,10 +116,10 @@ The wiki publishes the list of valid groups and their `options` as JSON (`groups
 
 Decisions made with the owner; change them deliberately.
 
-- No submitter accounts. Submitters cannot edit or delete their own submissions; moderators can edit at any state (optimistic locking via `version`; the first edit keeps the user's original in `original`).
+- Submitter accounts are opt-in per type (`submit_auth`). A signed-in submitter can edit their own submissions but not delete them; edits of published items are moderated (see Contributor accounts). Moderators can edit at any state (optimistic locking via `version`; the first edit keeps the user's original in `original`). Anonymous types stay anonymous.
 - Moderators only screen for spam and abuse. They do **not** verify that a team works; the disclaimer on the list says so.
 - Spam is deleted 14 days after it was marked (moving it out of spam resets the clock); audit rows after 30 days.
 - Raw IPs are nulled after 90 days (`IP_RETENTION_DAYS`); `ip_key` and country stay. This is a privacy default the owner did not explicitly ask for, and one constant to change.
-- Public input limits: 32 KB body, 10 submissions per `ip_key` per type per day, 500 pending per type (protects moderators from floods), 3 submissions per minute per `ip_key` (`SUBMIT_LIMITER`).
+- Public input limits: 32 KB body, 10 submissions per `ip_key` per type per day, 10 creates+edits per contributor per type per day (`SUBMISSIONS_PER_USER_PER_DAY`), 500 pending per type (protects moderators from floods), 3 submissions per minute per `ip_key` (`SUBMIT_LIMITER`).
 - Explanations: Markdown with no HTML or images and at most 3 validated inline links (see EMBED.md "Links in explanations"). Headings are remapped so community text never competes with the wiki's own `h2`.
 - The Worker URL is `*.workers.dev` until the owner decides on a custom domain.

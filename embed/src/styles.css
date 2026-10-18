@@ -427,6 +427,16 @@
   background: var(--cms-chip-bg, #8882);
   font-size: 0.92em;
 }
+.cms-account {
+  margin: 0;
+}
+.cms-account .cms-hint {
+  margin: 0;
+}
+.cms-account-edit {
+  display: grid;
+  gap: 0.35rem;
+}
 
 /* ---- form fields ---- */
 .cms-field {

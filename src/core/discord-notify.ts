@@ -36,6 +36,7 @@ export async function notifyNewSubmission(
   group: { id: string; title: string },
   pendingCount: number,
   now: number,
+  kind: 'submission' | 'revision' = 'submission',
 ): Promise<void> {
   const hook = rt.discordWebhookUrl
   if (!hook) return
@@ -47,7 +48,10 @@ export async function notifyNewSubmission(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: `New **${rt.name}** submission for **${group.title}** is waiting for review (${pendingCount} pending): ${link}`,
+        content:
+          kind === 'revision'
+            ? `A contributor edit of a **${rt.name}** submission for **${group.title}** is waiting for review (${pendingCount} pending): ${link}`
+            : `New **${rt.name}** submission for **${group.title}** is waiting for review (${pendingCount} pending): ${link}`,
         allowed_mentions: { parse: [] },
       }),
       signal: AbortSignal.timeout(3000),

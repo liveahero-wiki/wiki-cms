@@ -34,6 +34,16 @@ A plugin that cannot be loaded or that throws degrades to a raw JSON view (and a
 
 Types that define a name (`SubmissionTypeDef.title`) show it on every card; legacy items without one get an "Untitled" warning badge and an **"Untitled only"** checkbox on the list filters them (client-side, over the loaded page). The edit dialog has a name input (4–50 characters for LAH, plain text, no links; server errors map to the input). A legacy untitled item needs a name before it can be edited, which is how moderators backfill them. The "original" view shows the pre-edit name and tolerates tag keys that no longer exist (it prints `key: value`).
 
+## Contributor accounts: owners and edits
+
+Contributors (signed in on the public site) can edit their own approved submissions. An edit is stored as a pending *revision*; the published version stays live until a moderator approves it.
+
+- **Owner**: every submission card shows who submitted it (display name, with the provider account such as `Discord 123456…` in a small style) or "Anonymous (legacy)" when the owner is null. A card with a pending edit also gets an **Edit pending** badge that links to the edits view.
+- **Assign / change owner** (card action): opens a dialog with a contributor search (`GET /contributors?q=`, at least 2 characters; display name, provider account id or user id). Pick a result and confirm to `POST /submissions/:id/owner`; **Clear owner** sends `userId: null`. Used to give a legacy anonymous submission to a contributor on request. Errors are shown inline in the dialog.
+- **Contributor edits** (tab next to *Groups* / *Pending queue* on a type page, `?tab=edits`, state filter `&edits=pending|approved|rejected|withdrawn`): each item lists the published and the proposed values side by side (name, content via the plugin's summary/detail view, tags, language, demo URL, explanation), marks the changed fields (`admin/src/revisions.ts`, unit tested) and shows who proposed it. If `baseVersion` is lower than the submission's current `version`, a warning says a moderator changed the submission in the meantime and approving overwrites it.
+  - **Approve** sends `expectedVersion = submission.version`; **Reject** opens an inline textarea for an optional reason (500 characters max). Decided items leave the pending list; a cache `purgeWarning` is shown as a toast like for other actions.
+  - A `409` (`version_conflict` when a moderator changed the submission, `not_pending` when the edit was already decided or withdrawn) shows the server message and reloads the list.
+
 ## Notes for plugin authors
 
 - `ctx = { uiLang: 'en', theme, group: { id, options } }`; `options` comes from the groups registry (`AdminGroup.options`) of the submission's group (of the chosen group in the edit dialog; the editor is re-mounted with the current value when the group changes).

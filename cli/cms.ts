@@ -23,11 +23,13 @@ Global flags: --remote (act on the production database; default is --local), --j
   cms type add <id> --name <name> --origins <o1,o2> --plugin-url <url> --groups-url <url>
   cms type update <id> [--name] [--origins] [--plugin-url] [--groups-url] [--enable|--disable]
                        [--discord-webhook <url|none>] [--discord-thread <id|none>] [--webhook-per-hour <n>]
+                       [--submit-auth <anonymous|account>]
   cms type list
   cms invite create --types <t1,t2> [--base-url <PUBLIC_URL>]
   cms mod list
   cms mod grant <userId> --types <t1,t2>
   cms mod revoke <userId> [--types <t1>]        (no --types: remove all permissions and delete sessions)
+  cms submission set-owner <submissionId> --user <contributorUserId|none>   (assign/clear the contributor who owns a legacy submission)
   cms ip block <ip> [--reason <text>]
   cms ip unblock <ip>
   cms republish --type <t> [--group <g>] --url <PUBLIC_URL>      (needs CLI_TOKEN in the environment)
@@ -101,6 +103,8 @@ async function main(argv: string[]) {
       'discord-webhook': { type: 'string' },
       'discord-thread': { type: 'string' },
       'webhook-per-hour': { type: 'string' },
+      'submit-auth': { type: 'string' },
+      user: { type: 'string' },
       enable: { type: 'boolean', default: false },
       disable: { type: 'boolean', default: false },
       types: { type: 'string' },
@@ -161,12 +165,17 @@ async function main(argv: string[]) {
         if (!/^[1-9]d{0,5}$/.test(perHour)) throw new UsageError('--webhook-per-hour must be a positive integer')
         set('webhook_per_hour', sql`webhook_per_hour = ${Number(perHour)}`)
       }
+      const submitAuth = values['submit-auth']
+      if (submitAuth !== undefined) {
+        if (submitAuth !== 'anonymous' && submitAuth !== 'account') throw new UsageError('--submit-auth must be anonymous or account')
+        set('submit_auth', sql`submit_auth = ${submitAuth}`)
+      }
       if (!sets.length) throw new UsageError('nothing to update')
       runSql([`UPDATE submission_type_tab SET ${sets.join(', ')} WHERE id = ${sql`${arg}`}`, auditSql('cli.type_update', arg, arg, { set: cols })], remote)
       return console.log(`Updated type ${arg}. Run "cms republish --type ${arg}" so cached configs refresh.`)
     }
     case 'type list':
-      return table(runSql(['SELECT id, name, enabled, allowed_origins, plugin_url, groups_url, discord_webhook_url IS NOT NULL AS discord_webhook, discord_thread_id, webhook_per_hour FROM submission_type_tab ORDER BY id'], remote))
+      return table(runSql(['SELECT id, name, enabled, allowed_origins, plugin_url, groups_url, discord_webhook_url IS NOT NULL AS discord_webhook, discord_thread_id, webhook_per_hour, submit_auth FROM submission_type_tab ORDER BY id'], remote))
 
     case 'invite create': {
       const types = csv(values.types, '--types')
@@ -223,6 +232,22 @@ async function main(argv: string[]) {
         remote,
       )
       return console.log(`Revoked all permissions and sessions of ${arg}`)
+    }
+
+    case 'submission set-owner': {
+      if (!arg) throw new UsageError('submission id required')
+      if (!values.user) throw new UsageError('--user <contributorUserId|none> is required')
+      const owner = values.user === 'none' ? null : values.user
+      if (!runSql([sql`SELECT id FROM submission_tab WHERE id = ${arg}`], remote).length) throw new UsageError('no such submission')
+      if (owner && !runSql([sql`SELECT user_id FROM contributor_tab WHERE user_id = ${owner}`], remote).length) throw new UsageError('no such contributor')
+      runSql(
+        [
+          sql`UPDATE submission_tab SET user_id = ${owner} WHERE id = ${arg}`,
+          auditSql('cli.submission_set_owner', null, arg, { to: owner }),
+        ],
+        remote,
+      )
+      return console.log(`Owner of ${arg} set to ${owner ?? '(none)'}`)
     }
 
     case 'ip block': {

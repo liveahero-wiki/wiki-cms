@@ -1,14 +1,18 @@
-import { and, count, desc, eq, inArray, isNull, like, lt, max, or, sql } from 'drizzle-orm'
+import { and, count, desc, eq, exists, inArray, isNull, like, lt, max, or, sql } from 'drizzle-orm'
+import type { AdminOwner, AdminRevision, AdminSubmission } from '../../shared/api-types.ts'
 import { Hono } from 'hono'
-import { AUDIT_RETENTION_DAYS, DAY_MS, GROUP_ID_RE, INVITE_TTL_MS } from '../../config.ts'
+import { AUDIT_RETENTION_DAYS, DAY_MS, GROUP_ID_RE, INVITE_TTL_MS, REJECT_REASON_MAX } from '../../config.ts'
 import { writeAudit } from '../audit.ts'
 import { checkTypePermission, requireModerator, requireSession } from '../authz.ts'
 import { getDb, type Db } from '../db/client.ts'
 import {
+  account_tab,
   audit_log_tab,
+  contributor_tab,
   invite_tab,
   ip_block_tab,
   moderator_permission_tab,
+  submission_revision_tab,
   submission_tab,
   submission_type_tab,
   user_tab,
@@ -54,6 +58,41 @@ function toAdminRow(r: SubmissionRow) {
     aiVerdict: r.aiVerdict,
     aiReason: r.aiReason,
   }
+}
+
+async function loadOwners(db: Db, userIds: string[]): Promise<Map<string, AdminOwner>> {
+  const out = new Map<string, AdminOwner>()
+  if (!userIds.length) return out
+  const [users, profiles, accounts] = await Promise.all([
+    db.select({ id: user_tab.id, name: user_tab.name }).from(user_tab).where(inArray(user_tab.id, userIds)).all(),
+    db.select({ id: contributor_tab.userId, displayName: contributor_tab.displayName }).from(contributor_tab).where(inArray(contributor_tab.userId, userIds)).all(),
+    db.select({ userId: account_tab.userId, provider: account_tab.providerId, accountId: account_tab.accountId }).from(account_tab).where(inArray(account_tab.userId, userIds)).all(),
+  ])
+  const names = new Map(profiles.map((p) => [p.id, p.displayName]))
+  const acct = new Map<string, { provider: string; accountId: string }>()
+  for (const a of accounts) if (!acct.has(a.userId)) acct.set(a.userId, a)
+  for (const u of users) {
+    const a = acct.get(u.id)
+    out.set(u.id, { id: u.id, displayName: names.get(u.id) ?? u.name, provider: a?.provider ?? null, accountId: a?.accountId ?? null })
+  }
+  return out
+}
+
+const ownerIds = (rows: { userId: string | null }[]) => rows.flatMap((r) => (r.userId ? [r.userId] : []))
+
+/**
+ * toAdminRow plus the owner and the id of any pending contributor edit (list/detail only).
+ * `preloaded`: owners already being loaded (must cover every row's userId); loaded here when omitted.
+ */
+async function toAdminRows(db: Db, rows: SubmissionRow[], preloaded?: Promise<Map<string, AdminOwner>>): Promise<AdminSubmission[]> {
+  const [owners, pend] = await Promise.all([
+    preloaded ?? loadOwners(db, [...new Set(ownerIds(rows))]),
+    rows.length
+      ? db.select({ id: submission_revision_tab.id, sid: submission_revision_tab.submissionId }).from(submission_revision_tab).where(and(inArray(submission_revision_tab.submissionId, rows.map((r) => r.id)), eq(submission_revision_tab.state, 'pending'))).all()
+      : [],
+  ])
+  const pendBySub = new Map(pend.map((p) => [p.sid, p.id]))
+  return rows.map((r) => ({ ...toAdminRow(r), owner: r.userId ? (owners.get(r.userId) ?? null) : null, pendingRevisionId: pendBySub.get(r.id) ?? null }) as AdminSubmission)
 }
 
 async function readJson(c: Ctx): Promise<Record<string, unknown> | null> {
@@ -169,7 +208,7 @@ adminRoutes.get('/types/:type/submissions', mod, async (c) => {
   const page = rows.slice(0, limit)
   const last = page[page.length - 1]
   return c.json({
-    items: page.map(toAdminRow),
+    items: await toAdminRows(getDb(c.env), page),
     nextCursor: rows.length > limit && last ? `${last.createdAt}:${last.id}` : null,
   })
 })
@@ -183,7 +222,200 @@ async function loadSubmission(c: Ctx, id: string): Promise<SubmissionRow | Respo
 
 adminRoutes.get('/submissions/:id', mod, async (c) => {
   const row = await loadSubmission(c, c.req.param('id'))
-  return row instanceof Response ? row : c.json(toAdminRow(row))
+  return row instanceof Response ? row : c.json((await toAdminRows(getDb(c.env), [row]))[0])
+})
+
+// ---- contributor edits (revisions) ----
+type RevisionRow = typeof submission_revision_tab.$inferSelect
+
+function toAdminRevision(r: RevisionRow, owner: AdminOwner | null, submission: AdminSubmission): AdminRevision {
+  return {
+    id: r.id,
+    submissionId: r.submissionId,
+    state: r.state,
+    baseVersion: r.baseVersion,
+    title: r.title,
+    payload: JSON.parse(r.payload),
+    tags: JSON.parse(r.tags),
+    lang: r.lang as AdminRevision['lang'],
+    explanation: r.explanation,
+    explanationHtml: r.explanationHtml,
+    demoUrl: r.demoUrl,
+    rejectReason: r.rejectReason,
+    createdAt: r.createdAt,
+    decidedAt: r.decidedAt,
+    decidedBy: r.decidedBy,
+    owner,
+    submission,
+  }
+}
+
+const REVISION_STATES = ['pending', 'approved', 'rejected', 'withdrawn'] as const
+
+adminRoutes.get('/types/:type/revisions', mod, async (c) => {
+  const typeId = c.req.param('type')
+  const rt = await typeFor(c, typeId)
+  if (rt instanceof Response) return rt
+  const state = c.req.query('state') ?? 'pending'
+  if (!(REVISION_STATES as readonly string[]).includes(state)) return apiError(c, 400, 'bad_state', 'Invalid state.')
+  const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 50) || 50, 1), 100)
+  const conds = [eq(submission_tab.type, typeId), eq(submission_revision_tab.state, state as (typeof REVISION_STATES)[number])]
+  const cursor = c.req.query('cursor')
+  if (cursor) {
+    const m = cursor.match(/^(\d+):(.+)$/)
+    if (!m) return apiError(c, 400, 'bad_cursor', 'Invalid cursor.')
+    const ts = Number(m[1])
+    conds.push(or(lt(submission_revision_tab.createdAt, ts), and(eq(submission_revision_tab.createdAt, ts), lt(submission_revision_tab.id, m[2]!)))!)
+  }
+  const db = getDb(c.env)
+  const found = await db
+    .select({ rev: submission_revision_tab, sub: submission_tab })
+    .from(submission_revision_tab)
+    .innerJoin(submission_tab, eq(submission_tab.id, submission_revision_tab.submissionId))
+    .where(and(...conds))
+    .orderBy(desc(submission_revision_tab.createdAt), desc(submission_revision_tab.id))
+    .limit(limit + 1)
+    .all()
+  const page = found.slice(0, limit)
+  // One owner lookup for both the submissions' owners and the edits' authors, overlapped with the pending-edit query.
+  const ownersP = loadOwners(db, [...new Set([...ownerIds(page.map((f) => f.sub)), ...ownerIds(page.map((f) => f.rev))])])
+  const [subs, owners] = await Promise.all([toAdminRows(db, page.map((f) => f.sub), ownersP), ownersP])
+  const last = page[page.length - 1]
+  return c.json({
+    items: page.map((f, i) => toAdminRevision(f.rev, f.rev.userId ? (owners.get(f.rev.userId) ?? null) : null, subs[i]!)),
+    nextCursor: found.length > limit && last ? `${last.rev.createdAt}:${last.rev.id}` : null,
+  })
+})
+
+async function loadRevision(c: Ctx, id: string): Promise<{ rev: RevisionRow; sub: SubmissionRow } | Response> {
+  const db = getDb(c.env)
+  const rev = await db.select().from(submission_revision_tab).where(eq(submission_revision_tab.id, id)).get()
+  if (!rev) return apiError(c, 404, 'not_found', 'Edit not found.')
+  const sub = await db.select().from(submission_tab).where(eq(submission_tab.id, rev.submissionId)).get()
+  if (!sub) return apiError(c, 404, 'not_found', 'Submission not found.')
+  const denied = checkTypePermission(c, sub.type)
+  if (denied) return denied
+  if (rev.state !== 'pending') return apiError(c, 409, 'not_pending', 'This edit was already decided or withdrawn.')
+  return { rev, sub }
+}
+
+adminRoutes.post('/revisions/:id/approve', mod, async (c) => {
+  const deps = c.get('deps')
+  const body = await readJson(c)
+  if (!body) return apiError(c, 400, 'bad_json', 'Invalid JSON body.')
+  const loaded = await loadRevision(c, c.req.param('id'))
+  if (loaded instanceof Response) return loaded
+  const { rev, sub } = loaded
+  const rt = await typeFor(c, sub.type)
+  if (rt instanceof Response) return rt
+  if (body.expectedVersion !== sub.version) return apiError(c, 409, 'version_conflict', 'Someone else changed this submission; reload it.')
+
+  const now = deps.now()
+  const db = getDb(c.env)
+  const before = { payload: sub.payload, tags: sub.tags, title: sub.title, lang: sub.lang, explanation: sub.explanation, demoUrl: sub.demoUrl, groupId: sub.groupId }
+  const original = sub.original ?? JSON.stringify({ ...before, payload: JSON.parse(before.payload), tags: JSON.parse(before.tags) })
+  const me = c.get('user').id
+  // One transaction: the edit is marked approved only while it is still pending and the submission is unchanged, and the
+  // submission takes the edit's content only if that succeeded (a concurrent withdraw/replace or edit makes both no-ops).
+  const [revRes, subRes] = await db.batch([
+    db
+      .update(submission_revision_tab)
+      .set({ state: 'approved', decidedAt: now, decidedBy: me })
+      .where(
+        and(
+          eq(submission_revision_tab.id, rev.id),
+          eq(submission_revision_tab.state, 'pending'),
+          exists(db.select({ x: sql`1` }).from(submission_tab).where(and(eq(submission_tab.id, sub.id), eq(submission_tab.version, sub.version)))),
+        ),
+      ),
+    db
+      .update(submission_tab)
+      .set({
+        title: rev.title,
+        payload: rev.payload,
+        tags: rev.tags,
+        lang: rev.lang,
+        explanation: rev.explanation,
+        explanationHtml: rev.explanationHtml,
+        demoUrl: rev.demoUrl,
+        original,
+        version: sub.version + 1,
+        updatedAt: now,
+        moderatedBy: me,
+      })
+      .where(
+        and(
+          eq(submission_tab.id, sub.id),
+          eq(submission_tab.version, sub.version),
+          exists(
+            db
+              .select({ x: sql`1` })
+              .from(submission_revision_tab)
+              .where(and(eq(submission_revision_tab.id, rev.id), eq(submission_revision_tab.state, 'approved'), eq(submission_revision_tab.decidedAt, now), eq(submission_revision_tab.decidedBy, me))),
+          ),
+        ),
+      ),
+  ])
+  if (!revRes.meta.changes || !subRes.meta.changes) return apiError(c, 409, 'version_conflict', 'This edit was withdrawn or replaced, or the submission changed; reload it.')
+  await writeAudit(db, { actor: c.get('user').id, action: 'submission.revision.approve', type: sub.type, target: sub.id, detail: { revision: rev.id } }, now)
+
+  let purgeWarning: string | null = null
+  if (sub.state === 'approved') purgeWarning = purgeNote(await republishMany(c.env, sub.type, rt, [sub.groupId], deps.purge))
+  const fresh = await db.select().from(submission_tab).where(eq(submission_tab.id, sub.id)).get()
+  return c.json({ item: (await toAdminRows(db, [fresh!]))[0], purgeWarning })
+})
+
+adminRoutes.post('/revisions/:id/reject', mod, async (c) => {
+  const body = await readJson(c)
+  if (!body) return apiError(c, 400, 'bad_json', 'Invalid JSON body.')
+  const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, REJECT_REASON_MAX) || null : null
+  const loaded = await loadRevision(c, c.req.param('id'))
+  if (loaded instanceof Response) return loaded
+  const { rev, sub } = loaded
+  const now = c.get('deps').now()
+  const db = getDb(c.env)
+  const res = await db
+    .update(submission_revision_tab)
+    .set({ state: 'rejected', rejectReason: reason, decidedAt: now, decidedBy: c.get('user').id })
+    .where(and(eq(submission_revision_tab.id, rev.id), eq(submission_revision_tab.state, 'pending')))
+    .run()
+  if (!res.meta.changes) return apiError(c, 409, 'not_pending', 'This edit was already decided or withdrawn.')
+  await writeAudit(db, { actor: c.get('user').id, action: 'submission.revision.reject', type: sub.type, target: sub.id, detail: { revision: rev.id, reason } }, now)
+  return c.json({ ok: true })
+})
+
+// ---- contributors / ownership (legacy anonymous rows can be assigned an owner on request) ----
+adminRoutes.get('/contributors', mod, async (c) => {
+  const q = (c.req.query('q') ?? '').trim().slice(0, 64)
+  if (q.length < 2) return apiError(c, 400, 'bad_request', 'Type at least 2 characters.')
+  const db = getDb(c.env)
+  const pattern = `%${q.replace(/[\\%_]/g, (m) => '\\' + m)}%`
+  const hits = await db
+    .select({ id: contributor_tab.userId, displayName: contributor_tab.displayName, createdAt: contributor_tab.createdAt, provider: account_tab.providerId, accountId: account_tab.accountId })
+    .from(contributor_tab)
+    .leftJoin(account_tab, eq(account_tab.userId, contributor_tab.userId))
+    .where(or(sql`${contributor_tab.displayName} LIKE ${pattern} ESCAPE '\\'`, eq(account_tab.accountId, q), eq(contributor_tab.userId, q)))
+    .limit(20)
+    .all()
+  const seen = new Set<string>()
+  const contributors = hits.filter((h) => (seen.has(h.id) ? false : (seen.add(h.id), true)))
+  return c.json({ contributors })
+})
+
+adminRoutes.post('/submissions/:id/owner', mod, async (c) => {
+  const body = await readJson(c)
+  if (!body || !('userId' in body) || (body.userId !== null && typeof body.userId !== 'string')) return apiError(c, 400, 'bad_request', 'userId (string or null) is required.')
+  const row = await loadSubmission(c, c.req.param('id'))
+  if (row instanceof Response) return row
+  const db = getDb(c.env)
+  if (body.userId !== null) {
+    const exists = await db.select({ id: contributor_tab.userId }).from(contributor_tab).where(eq(contributor_tab.userId, body.userId)).get()
+    if (!exists) return apiError(c, 404, 'unknown_contributor', 'No such contributor.')
+  }
+  await db.update(submission_tab).set({ userId: body.userId }).where(eq(submission_tab.id, row.id)).run()
+  await writeAudit(db, { actor: c.get('user').id, action: 'submission.set_owner', type: row.type, target: row.id, detail: { from: row.userId, to: body.userId } }, c.get('deps').now())
+  const fresh = await db.select().from(submission_tab).where(eq(submission_tab.id, row.id)).get()
+  return c.json({ item: (await toAdminRows(db, [fresh!]))[0], purgeWarning: null })
 })
 
 // ---- edit ----

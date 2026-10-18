@@ -1,13 +1,17 @@
 import { render } from 'preact'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { SubmitRequest, TypeConfig } from '../../src/shared/api-types.ts'
+import type { ContribEditRequest, SubmitRequest, TypeConfig } from '../../src/shared/api-types.ts'
 import { pickText } from '../../src/shared/i18n.ts'
 import { MAX_LINKS } from '../../src/shared/link-policy.ts'
 import { checkExplanation, renderExplanation } from '../../src/shared/markdown-policy.ts'
 import { checkTitle, titleLength, normalizeTitle } from '../../src/shared/title-policy.ts'
 import type { EditorHandle, FieldError, SubmissionPlugin } from '../../src/shared/plugin-api.ts'
 import { apiErrorText, fieldErrorText, t } from './i18n/t.ts'
-import { fetchConfig, injectStyle, loadPlugin, makeCtx, parseHttps, postSubmission, type Lang, type ListOpts } from './shared.ts'
+import { AccountBar, SignInGate } from './account.tsx'
+import { createSubmission, editSubmission } from './contrib-api.ts'
+import { currentSession, onSessionChange, type StoredSession } from './contrib-session.ts'
+import type { EditTarget } from './form-api.ts'
+import { ApiError, fetchConfig, injectStyle, loadPlugin, makeCtx, parseHttps, postSubmission, type Lang, type ListOpts } from './shared.ts'
 
 export interface FormArgs {
   host: HTMLElement
@@ -15,6 +19,10 @@ export interface FormArgs {
   uiLang: Lang
   /** `groupOptions` of the list blob (passed to the plugin as ctx.group.options). */
   groupOptions: Record<string, unknown>
+  /** Edit one of the signed-in contributor's own submissions (prefilled; the draft is kept per submission version). */
+  edit?: EditTarget
+  /** Called once when the dialog has been closed and removed. */
+  onClose?: () => void
 }
 
 interface Values {
@@ -194,19 +202,26 @@ function EditorMount({
 
 // ---- form body ----
 
-function FormBody({ cfg, plugin, args, close, setClose }: {
+function FormBody({ cfg, plugin, args, session, close, setClose }: {
   cfg: TypeConfig
   plugin: SubmissionPlugin
   args: FormArgs
+  /** Set when the type needs an account (or this is an edit). */
+  session: StoredSession | null
   close(): void
   setClose(fn: () => void): void
 }) {
-  const { opts, uiLang: L, groupOptions } = args
-  const draftKey = `cms-draft:${opts.type}:${opts.group}`
+  const { opts, uiLang: L, groupOptions, edit } = args
+  // Edits keep their own draft per submission version, so a lost session (sign-in again remounts this body) or an
+  // accidental close does not throw the work away; it is pristine (not stored) until something changes.
+  const draftKey = edit ? `cms-draft-edit:${edit.id}:${edit.version}` : `cms-draft:${opts.type}:${opts.group}`
   const ctx = useMemo(() => makeCtx(opts, L, groupOptions), [])
   const defaultLang = (cfg.langs.some((l) => l.value === 'en') ? 'en' : cfg.langs[0]?.value ?? 'en') as Lang
   const fresh = useMemo<Values>(
-    () => ({ payload: plugin.defaultPayload(), title: '', tags: tagDefaults(cfg), lang: defaultLang, explanation: template(cfg, defaultLang), demoUrl: '' }),
+    () =>
+      edit
+        ? { payload: edit.initial.payload, title: edit.initial.title, tags: { ...edit.initial.tags }, lang: edit.initial.lang, explanation: edit.initial.explanation, demoUrl: edit.initial.demoUrl }
+        : { payload: plugin.defaultPayload(), title: '', tags: tagDefaults(cfg), lang: defaultLang, explanation: template(cfg, defaultLang), demoUrl: '' },
     [],
   )
   const restored = useMemo(() => readDraft(draftKey, cfg), [])
@@ -216,7 +231,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
   const [errors, setErrors] = useState<FieldError[]>([])
   const [banner, setBanner] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState(false)
+  const [done, setDone] = useState<null | 'created' | 'edited' | 'revision'>(null)
   const [tab, setTab] = useState<'write' | 'preview'>('write')
   const [tsError, setTsError] = useState(false)
 
@@ -380,12 +395,25 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
       turnstileToken: token.current,
       website: honeypot.current?.value ?? '',
     }
-    const err = await postSubmission(opts, body)
+    let err: ApiError | null = null
+    let outcome: 'created' | 'edited' | 'revision' = 'created'
+    try {
+      if (edit) {
+        const r = await editSubmission(opts.api, edit.id, { ...body, expectedVersion: edit.version } satisfies ContribEditRequest)
+        outcome = r.state === 'revision_pending' ? 'revision' : 'edited'
+      } else if (session) {
+        await createSubmission(opts.api, opts.type, opts.group, body)
+      } else {
+        err = await postSubmission(opts, body)
+      }
+    } catch (e) {
+      err = e instanceof ApiError ? e : new ApiError(0, 'unknown', String(e))
+    }
     setBusy(false)
     if (!err) {
       doneRef.current = true
       writeDraft(draftKey, null)
-      setDone(true)
+      setDone(outcome)
       return
     }
     resetWidget() // tokens are single-use
@@ -396,12 +424,12 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
     }
   }
 
-  if (done) {
+  if (done !== null) {
     return (
       <>
         <div class="cms-dlg-body">
           <p class="cms-success" role="status">
-            {t(L, 'form.success')}
+            {t(L, done === 'revision' ? 'form.successRevision' : done === 'edited' ? 'form.successEdited' : 'form.success')}
           </p>
         </div>
         <div class="cms-dlg-foot">
@@ -416,6 +444,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
   return (
     <form ref={formRef} class="cms-form" noValidate onSubmit={onSubmit}>
       <div class="cms-dlg-body">
+        {session && <AccountBar api={opts.api} lang={L} session={session} />}
         {draftNote && (
           <p class="cms-note" role="status">
             {t(L, 'form.draftRestored')}{' '}
@@ -663,7 +692,7 @@ function FormBody({ cfg, plugin, args, close, setClose }: {
             {t(L, 'form.cancel')}
           </button>
           <button type="submit" class="cms-btn cms-primary" disabled={busy}>
-            {busy ? t(L, 'form.submitting') : t(L, 'form.submit')}
+            {busy ? t(L, 'form.submitting') : t(L, edit ? 'form.submitEdit' : 'form.submit')}
           </button>
         </div>
       </div>
@@ -683,6 +712,8 @@ function Shell({ args, dialog, dispose }: { args: FormArgs; dialog: HTMLDialogEl
     setTimeout(dispose, 0) // do not rely on the 'close' event alone
   }
   const closeFn = useRef<() => void>(plainClose)
+  const [session, setSession] = useState<StoredSession | null>(() => currentSession(args.opts.api))
+  useEffect(() => onSessionChange(args.opts.api, () => setSession(currentSession(args.opts.api))), [])
 
   useEffect(() => {
     let dead = false
@@ -718,14 +749,27 @@ function Shell({ args, dialog, dispose }: { args: FormArgs; dialog: HTMLDialogEl
     <>
       <div class="cms-dlg-head">
         <h2 class="cms-dlg-title" id="cms-dlg-title">
-          {t(L, 'form.title')}
+          {t(L, args.edit ? 'form.titleEdit' : 'form.title')}
         </h2>
         <button type="button" class="cms-x" aria-label={t(L, 'form.close')} onClick={() => closeFn.current()}>
           <span aria-hidden="true">×</span>
         </button>
       </div>
       {cfg && plugin ? (
-        <FormBody cfg={cfg} plugin={plugin} args={args} close={plainClose} setClose={(fn) => (closeFn.current = fn)} />
+        // Edits always need the account; new submissions only when the type requires one.
+        (args.edit || cfg.submitAuth === 'account') && !session ? (
+          <SignInGate api={args.opts.api} lang={L} onCancel={plainClose} />
+        ) : (
+          <FormBody
+            key={session?.user.id ?? 'anon'}
+            cfg={cfg}
+            plugin={plugin}
+            args={args}
+            session={args.edit || cfg.submitAuth === 'account' ? session : null}
+            close={plainClose}
+            setClose={(fn) => (closeFn.current = fn)}
+          />
+        )
       ) : (
         <>
           <div class="cms-dlg-body">
@@ -773,6 +817,11 @@ export function openForm(args: FormArgs): void {
     disposed = true
     render(null, dialog)
     dialog.remove()
+    try {
+      args.onClose?.()
+    } catch (e) {
+      console.warn('[wiki-cms] openForm onClose threw', e)
+    }
   }
   dialog.addEventListener('close', dispose, { once: true })
   render(<Shell args={args} dialog={dialog} dispose={dispose} />, dialog)

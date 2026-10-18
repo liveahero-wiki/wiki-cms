@@ -107,6 +107,8 @@ interface OpenFormOptions {
   groupOptions: Record<string, unknown>  // `groupOptions` of the list blob -> ctx.group.options
   api?: string               // Worker origin; default: the origin v1.js was served from
   lang?: string              // a Lang or a BCP-47 tag; default: resolved from the host. The open dialog keeps it.
+  edit?: { id: string; version: number; initial: ContribContent }  // edit the signed-in contributor's own submission (see below)
+  onClose?: () => void      // called once the dialog has closed and been removed (submitted or not), e.g. to reload contrib.mine()
 }
 window.cmsEmbed.openForm(options): Promise<void>
 ```
@@ -117,6 +119,26 @@ window.cmsEmbed.openForm(options): Promise<void>
 - Do **not** put `data-cms-type` on your own root element: `v1.js` scans `[data-cms-type]` and would take it over.
 - Use a dedicated, empty `host` element that your own UI never re-renders into.
 - When the form opens, the whole embed stylesheet is injected (including the list rules). Class names starting with `cms-` are reserved for the embed; give your own list a different prefix.
+
+## Contributor accounts
+
+When the type has `submitAuth: 'account'` (`GET /api/v1/types/:type`), the form shows a **sign-in gate** (popup, Discord) instead of the form until a contributor session exists, and posts through the bearer-only `/api/contrib/*` API. The session (a bearer token) is stored in the **host page's** `localStorage` under `cms-contrib:<api origin>` and a `cms:contrib` window event (`detail: { api }`) fires when it changes; both are part of the contract so a host can show who is signed in without loading the embed.
+
+`v1.js` also exposes `window.cmsEmbed.contrib` (lazy: only `session`, `signIn` and `onChange` are in the tiny loader; the rest loads `contrib-api` on first use):
+
+```ts
+contrib.session(api?): { token, user } | null          // sync, no network
+contrib.signIn(api?, provider?): Promise<session>      // call inside a click handler (popup); rejects with SignInError { code, eligibleAt }
+contrib.signOut(api?): Promise<void>
+contrib.mine(type?, api?): Promise<ContribSubmission[]> // own submissions, any state; `revision` = pending/rejected edit
+contrib.rename(displayName, api?)
+contrib.withdrawRevision(submissionId, api?)
+contrib.onChange(cb, api?): () => void
+```
+
+`SignInError.code`: `popup_blocked`, `closed`, `account_too_young` (+ `eligibleAt`), `unauthenticated`, `unavailable`.
+
+**Editing:** pass `edit: { id, version, initial }` to `openForm` (take them from a `ContribSubmission`: its `id`, `version`, and the content of its pending/rejected `revision` or of the submission itself). The form is prefilled, keeps its unsent draft under `cms-draft-edit:<id>:<version>` (so signing in again after an expired session does not lose the work), and saves with `PUT`. For a published submission the result is "queued for moderator review; the current version stays visible".
 
 ## Local development
 

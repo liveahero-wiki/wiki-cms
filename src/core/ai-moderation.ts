@@ -58,10 +58,11 @@ export async function classify(ai: Ai, text: string): Promise<AiResult> {
 }
 
 /**
- * Classify a freshly inserted submission (run via ctx.waitUntil). Never blocks or fails the submission:
- * any error → verdict 'error'. In 'auto' mode spam/abusive rows move to state 'spam' (moderators can restore).
+ * Classify a freshly inserted (or owner-edited, still pending) submission (run via ctx.waitUntil). Never blocks or fails
+ * the submission: any error → verdict 'error'. In 'auto' mode spam/abusive rows move to state 'spam' (moderators can
+ * restore). `version`: the row version the text belongs to; only that untouched version is auto-moved.
  */
-export async function aiModerate(env: Env, id: string, text: string, now = Date.now()): Promise<void> {
+export async function aiModerate(env: Env, id: string, text: string, now = Date.now(), version = 1): Promise<void> {
   if (!env.AI || env.AI_MODERATION === 'off') return
   const db = getDb(env)
   try {
@@ -71,8 +72,8 @@ export async function aiModerate(env: Env, id: string, text: string, now = Date.
       const res = await db
         .update(submission_tab)
         // Only an untouched pending row is moved; a moderator who already acted wins.
-        .set({ state: 'spam', stateChangedAt: now, updatedAt: now, version: 2 })
-        .where(and(eq(submission_tab.id, id), eq(submission_tab.state, 'pending'), eq(submission_tab.version, 1), isNull(submission_tab.moderatedBy)))
+        .set({ state: 'spam', stateChangedAt: now, updatedAt: now, version: version + 1 })
+        .where(and(eq(submission_tab.id, id), eq(submission_tab.state, 'pending'), eq(submission_tab.version, version), isNull(submission_tab.moderatedBy)))
         .run()
       if (res.meta.changes) {
         const row = await db.select({ type: submission_tab.type }).from(submission_tab).where(eq(submission_tab.id, id)).get()

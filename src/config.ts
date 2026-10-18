@@ -23,3 +23,15 @@ export const HOUR_MS = 60 * 60 * 1000
 
 /** Default cap on Discord notifications per submission type per hour (override with `cms type update --webhook-per-hour`). */
 export const WEBHOOK_MAX_PER_HOUR_DEFAULT = 10
+
+// ---- Contributor accounts ----
+export const CONTRIB_TOKEN_TTL_MS = 30 * DAY_MS
+/** A new contributor's provider account must be at least this old (checked once, when the contributor account is created). */
+export { CONTRIB_MIN_ACCOUNT_AGE_DAYS } from './shared/contrib.ts'
+/** Creates + edits per contributor per type per 24 h (in addition to the per-IP cap). */
+export const SUBMISSIONS_PER_USER_PER_DAY = 10
+/** Contributor accounts with no submissions, no live token and no sign-in for this long are pruned. */
+export const CONTRIB_IDLE_PRUNE_DAYS = 180
+export const DISPLAY_NAME_MIN = 2
+export const DISPLAY_NAME_MAX = 32
+export const REJECT_REASON_MAX = 500

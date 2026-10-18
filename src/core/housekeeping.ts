@@ -1,10 +1,10 @@
-import { and, eq, isNotNull, lt, notExists, sql } from 'drizzle-orm'
-import { AUDIT_RETENTION_DAYS, DAY_MS, INVITE_PURGE_AFTER_DAYS, IP_RETENTION_DAYS, ORPHAN_USER_AFTER_MS, SPAM_RETENTION_DAYS } from '../config.ts'
+import { and, eq, gt, isNotNull, lt, notExists, sql } from 'drizzle-orm'
+import { AUDIT_RETENTION_DAYS, CONTRIB_IDLE_PRUNE_DAYS, DAY_MS, INVITE_PURGE_AFTER_DAYS, IP_RETENTION_DAYS, ORPHAN_USER_AFTER_MS, SPAM_RETENTION_DAYS } from '../config.ts'
 import type { Env } from '../env.ts'
 import { writeAudit } from './audit.ts'
 import type { Purger } from './cache.ts'
 import { getDb } from './db/client.ts'
-import { audit_log_tab, invite_tab, moderator_permission_tab, session_tab, submission_tab, user_tab, verification_tab } from './db/schema.ts'
+import { audit_log_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, session_tab, submission_tab, user_tab, verification_tab } from './db/schema.ts'
 import { refreshGroups, refreshRoster } from './groups.ts'
 import { republishMany } from './publish.ts'
 import { listEnabledTypes } from './types-runtime.ts'
@@ -16,6 +16,8 @@ export interface HousekeepingResult {
   sessionsDeleted: number
   verificationsDeleted: number
   usersDeleted: number
+  tokensDeleted: number
+  contributorsPruned: number
   ipsCleared: number
   groupsRepublished: number
 }
@@ -33,7 +35,25 @@ export async function runHousekeeping(env: Env, purge: Purger, now = Date.now())
   const sessionsDeleted = changes(await db.delete(session_tab).where(lt(session_tab.expiresAt, new Date(now))).run())
   const verificationsDeleted = changes(await db.delete(verification_tab).where(lt(verification_tab.expiresAt, new Date(now))).run())
 
-  // Orphan users: no permission rows and no claimed invite, older than 24 h (cascades to sessions/accounts).
+  // Expired contributor tokens.
+  const tokensDeleted = changes(await db.delete(contrib_token_tab).where(lt(contrib_token_tab.expiresAt, now)).run())
+
+  // Idle contributor accounts: no submissions, no live token, no recent token use (their user row goes via the orphan rule below).
+  const idleBefore = now - CONTRIB_IDLE_PRUNE_DAYS * DAY_MS
+  const contributorsPruned = changes(
+    await db
+      .delete(contributor_tab)
+      .where(
+        and(
+          lt(contributor_tab.createdAt, idleBefore),
+          notExists(db.select({ x: sql`1` }).from(submission_tab).where(eq(submission_tab.userId, contributor_tab.userId))),
+          notExists(db.select({ x: sql`1` }).from(contrib_token_tab).where(and(eq(contrib_token_tab.userId, contributor_tab.userId), gt(contrib_token_tab.lastUsedAt, idleBefore)))),
+        ),
+      )
+      .run(),
+  )
+
+  // Orphan users: no permission rows, no claimed invite, no contributor profile and no submissions, older than 24 h (cascades to sessions/accounts).
   const usersDeleted = changes(
     await db
       .delete(user_tab)
@@ -42,6 +62,8 @@ export async function runHousekeeping(env: Env, purge: Purger, now = Date.now())
           lt(user_tab.createdAt, new Date(now - ORPHAN_USER_AFTER_MS)),
           notExists(db.select({ x: sql`1` }).from(moderator_permission_tab).where(eq(moderator_permission_tab.userId, user_tab.id))),
           notExists(db.select({ x: sql`1` }).from(invite_tab).where(eq(invite_tab.usedBy, user_tab.id))),
+          notExists(db.select({ x: sql`1` }).from(contributor_tab).where(eq(contributor_tab.userId, user_tab.id))),
+          notExists(db.select({ x: sql`1` }).from(submission_tab).where(eq(submission_tab.userId, user_tab.id))),
         ),
       )
       .run(),
@@ -67,8 +89,8 @@ export async function runHousekeeping(env: Env, purge: Purger, now = Date.now())
     }
   }
 
-  const result = { spamDeleted, auditDeleted, invitesDeleted, sessionsDeleted, verificationsDeleted, usersDeleted, ipsCleared, groupsRepublished }
-  if (spamDeleted + auditDeleted + invitesDeleted + sessionsDeleted + verificationsDeleted + usersDeleted + ipsCleared + groupsRepublished > 0) {
+  const result = { spamDeleted, auditDeleted, invitesDeleted, sessionsDeleted, verificationsDeleted, usersDeleted, tokensDeleted, contributorsPruned, ipsCleared, groupsRepublished }
+  if (spamDeleted + auditDeleted + invitesDeleted + sessionsDeleted + verificationsDeleted + usersDeleted + tokensDeleted + contributorsPruned + ipsCleared + groupsRepublished > 0) {
     await writeAudit(db, { actor: 'system', action: 'system.housekeeping', detail: result }, now)
   }
   return result

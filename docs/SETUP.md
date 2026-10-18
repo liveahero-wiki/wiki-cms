@@ -52,7 +52,9 @@ node cli/cms.ts type add lah-team-formation --name "LAH team formation" \
 node cli/cms.ts invite create --types lah-team-formation      # prints the bootstrap invite link
 ```
 
-Open the link, sign in with Discord, and you are the first moderator. Add `--remote` to every command to act on the production database.
+Open the link, sign in with Discord, and you are the first moderator.
+
+To require contributor accounts for submissions (the Team Creator does), set `cms type update lah-team-formation --submit-auth account` (add `--remote` for production). Do this **after** the wiki and embed that use the sign-in popup are live; until then the old anonymous form would get 401. Contributor sign-in uses the same Discord application as moderators (no new secrets); a Discord account must be 30 days old to become a contributor. `cms submission set-owner <submissionId> --user <contributorUserId|none>` (or the admin portal) assigns an owner to a legacy anonymous submission. Add `--remote` to every command to act on the production database.
 
 ## 2. Deploying
 

@@ -15,6 +15,8 @@ export interface ResolvedType {
   discordWebhookUrl: string | null
   discordThreadId: string | null
   webhookPerHour: number
+  /** 'account': only a signed-in contributor may submit (anonymous POST is refused). */
+  submitAuth: 'anonymous' | 'account'
 }
 
 const TTL_MS = 60_000
@@ -53,6 +55,7 @@ export async function getType(env: Env, id: string, now = Date.now()): Promise<R
         discordWebhookUrl: row.discordWebhookUrl,
         discordThreadId: row.discordThreadId,
         webhookPerHour: row.webhookPerHour,
+        submitAuth: row.submitAuth,
       }
     }
   }
@@ -78,6 +81,7 @@ export async function listEnabledTypes(env: Env): Promise<{ id: string; resolved
         discordWebhookUrl: row.discordWebhookUrl,
         discordThreadId: row.discordThreadId,
         webhookPerHour: row.webhookPerHour,
+        submitAuth: row.submitAuth,
       },
     })
   }

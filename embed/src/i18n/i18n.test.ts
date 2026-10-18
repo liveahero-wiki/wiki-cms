@@ -30,7 +30,7 @@ describe('embed i18n bundles', () => {
       'title_required', 'title_too_short', 'title_too_long', 'title_link', 'title_invalid',
     ]
     for (const c of fieldCodes) expect(en, `err.${c}`).toHaveProperty(`err.${c}`)
-    const apiCodes = ['validation_failed', 'turnstile_failed', 'rate_limited', 'daily_cap', 'ip_blocked', 'pending_cap', 'bad_origin', 'unknown_group', 'unknown_type', 'too_large', 'bad_json', 'network', 'unknown']
+    const apiCodes = ['validation_failed', 'turnstile_failed', 'rate_limited', 'daily_cap', 'ip_blocked', 'pending_cap', 'bad_origin', 'unknown_group', 'unknown_type', 'too_large', 'bad_json', 'network', 'unknown', 'account_required', 'unauthenticated', 'forbidden', 'not_found', 'not_editable', 'no_changes', 'version_conflict']
     for (const c of apiCodes) expect(en, `api.${c}`).toHaveProperty(`api.${c}`)
   })
 

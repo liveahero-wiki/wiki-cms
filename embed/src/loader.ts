@@ -1,4 +1,6 @@
 import { isLang, langFromTag, resolveUiLang } from '../../src/shared/i18n.ts'
+import type { ContribSubmission } from '../../src/shared/api-types.ts'
+import { currentSession, onSessionChange, signIn, type StoredSession } from './contrib-session.ts'
 import { normalizeFormOptions } from './form-api.ts'
 import { loaderStrings } from './i18n/loader.ts'
 import type { ListOpts } from './shared.ts'
@@ -7,9 +9,24 @@ import type { ListOpts } from './shared.ts'
 // nears the viewport. It also exposes `window.cmsEmbed.openForm()` for hosts that draw their own list.
 // No framework, never throws into the host page.
 type Host = HTMLElement & { _cms?: 1 }
+/** Contributor account helpers for hosts that draw their own UI. `api` defaults to the origin v1.js was served from. */
+interface CmsContrib {
+  /** Synchronous, no network: the stored session, or null. */
+  session(api?: string): StoredSession | null
+  /** Opens the sign-in popup. Call it directly from a click handler. Rejects with a `SignInError` (`code`, `eligibleAt`). */
+  signIn(api?: string, provider?: string): Promise<StoredSession>
+  signOut(api?: string): Promise<void>
+  /** The signed-in contributor's own submissions (rejects with ApiError 401 after clearing a dead token). */
+  mine(type?: string, api?: string): Promise<ContribSubmission[]>
+  rename(displayName: string, api?: string): Promise<StoredSession['user']>
+  withdrawRevision(submissionId: string, api?: string): Promise<void>
+  /** Fires when the session is created, changed or cleared (this tab or another). Returns an unsubscribe function. */
+  onChange(cb: () => void, api?: string): () => void
+}
 interface CmsEmbed {
   (): void
   openForm?: (options: unknown) => Promise<void>
+  contrib?: CmsContrib
 }
 const w = window as unknown as { cmsEmbed?: CmsEmbed }
 
@@ -22,6 +39,19 @@ async function openForm(options: unknown): Promise<void> {
   r.host.classList.add('cms-submissions')
   const m = await import('./form.tsx')
   m.openForm(r)
+}
+
+const contribApi = () => import('./contrib-api.ts')
+const apiOf = (api?: string) => (api ?? origin).replace(/\/+$/, '')
+
+const contrib: CmsContrib = {
+  session: (api) => currentSession(apiOf(api)),
+  signIn: (api, provider) => signIn(apiOf(api), provider),
+  signOut: async (api) => (await contribApi()).signOut(apiOf(api)),
+  mine: async (type, api) => (await contribApi()).mine(apiOf(api), type),
+  rename: async (name, api) => (await contribApi()).rename(apiOf(api), name),
+  withdrawRevision: async (id, api) => (await contribApi()).withdrawRevision(apiOf(api), id),
+  onChange: (cb, api) => onSessionChange(apiOf(api), cb),
 }
 
 function createScan(): () => void {
@@ -91,11 +121,12 @@ try {
   if (w.cmsEmbed) {
     // Script included twice (or an older loader is present): re-scan, and make sure `openForm` exists.
     w.cmsEmbed.openForm ??= openForm
+    w.cmsEmbed.contrib ??= contrib
     w.cmsEmbed()
   } else {
     const scan = createScan()
     // Assigned synchronously, so `openForm` is available as soon as the module has been imported.
-    w.cmsEmbed = Object.assign(() => scan(), { openForm })
+    w.cmsEmbed = Object.assign(() => scan(), { openForm, contrib })
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan)
     else scan()
   }

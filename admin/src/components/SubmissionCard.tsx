@@ -4,11 +4,12 @@ import type { PluginContext } from '../../../src/shared/plugin-api.ts'
 import { ApiError, api, errorMessage } from '../api.ts'
 import { flagEmoji, formatAbsolute, formatRelative } from '../format.ts'
 import { loadMarkdownPolicy } from '../markdown.ts'
-import { Link, groupPath } from '../router.tsx'
+import { Link, groupPath, typePath } from '../router.tsx'
 import { useTheme } from '../theme.ts'
 import { toast } from '../toast.tsx'
 import { groupOf, groupTitle, langLabel, tagLabels, useTypeData, type TypeData } from '../typeData.tsx'
 import { BlockIpDialog } from './BlockIpDialog.tsx'
+import { OwnerDialog, OwnerLabel } from './OwnerDialog.tsx'
 import { PluginView, RawPayload } from './PluginView.tsx'
 import { Badge, Skeleton } from './ui.tsx'
 
@@ -17,7 +18,7 @@ export function usePluginCtx(td: TypeData, groupId: string): PluginContext {
   return { uiLang: 'en', theme: resolved, group: { id: groupId, options: groupOf(td, groupId)?.options ?? {} } }
 }
 
-function PayloadView({ kind, payload, groupId }: { kind: 'summary' | 'detail'; payload: unknown; groupId: string }) {
+export function PayloadView({ kind, payload, groupId }: { kind: 'summary' | 'detail'; payload: unknown; groupId: string }) {
   const td = useTypeData()
   const ctx = usePluginCtx(td, groupId)
   if (td.plugin.status === 'loading') return <Skeleton lines={2} height="1.6em" />
@@ -32,7 +33,7 @@ function externalLinks(html: string): string[] {
   return [...doc.querySelectorAll<HTMLAnchorElement>('a.cms-ext')].map((a) => a.getAttribute('href') ?? '')
 }
 
-function Explanation({ html }: { html: string }) {
+export function Explanation({ html }: { html: string }) {
   // Safe: the Worker rendered it with raw HTML and images disabled; only validated https links get an <a>.
   const links = useMemo(() => externalLinks(html), [html])
   return (
@@ -113,6 +114,7 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
   const [Edit, setEdit] = useState<typeof import('./EditDialog.tsx').EditDialog | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [blockOpen, setBlockOpen] = useState(false)
+  const [ownerOpen, setOwnerOpen] = useState(false)
 
   const tags = tagLabels(td.config, item.tags)
   const edited = item.original !== null
@@ -177,6 +179,11 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
           <Badge kind="accent" title="A moderator edited this submission">
             edited
           </Badge>
+        )}
+        {item.pendingRevisionId && (
+          <Link class="badge-link" href={`${typePath(item.type)}?tab=edits`} title="The owner proposed an edit; review it under Contributor edits">
+            <Badge kind="warn">Edit pending</Badge>
+          </Link>
         )}
         {item.aiVerdict && (
           <Badge kind={item.aiVerdict === 'spam' ? 'danger' : 'neutral'} title={item.aiReason ?? undefined}>
@@ -246,6 +253,9 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
 
       <p class="meta-line">
         <span>
+          Owner: <OwnerLabel owner={item.owner} />
+        </span>
+        <span>
           IP: <code>{item.ip ?? `${item.ipKey} (IP purged)`}</code>
         </span>
         {item.ip && item.ip !== item.ipKey && (
@@ -287,6 +297,9 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
         <button type="button" class="btn" disabled={busy} onClick={openEdit}>
           Edit
         </button>
+        <button type="button" class="btn" disabled={busy} onClick={() => setOwnerOpen(true)}>
+          {item.owner ? 'Change owner' : 'Assign owner'}
+        </button>
         <button type="button" class="btn" disabled={busy} onClick={() => setBlockOpen(true)}>
           Block IP
         </button>
@@ -312,6 +325,18 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
           onConflictReload={async () => {
             await reload()
             setEditOpen(false)
+          }}
+        />
+      )}
+      {ownerOpen && (
+        <OwnerDialog
+          item={item}
+          onClose={() => setOwnerOpen(false)}
+          onSaved={(r) => {
+            setOwnerOpen(false)
+            onUpdate(r.item)
+            if (r.purgeWarning) toast(r.purgeWarning, 'warn')
+            toast(r.item.owner ? `Owner set to ${r.item.owner.displayName}.` : 'Owner cleared.')
           }}
         />
       )}

@@ -46,6 +46,27 @@ describe('normalizeFormOptions', () => {
     expect(norm(o)).toBeInstanceOf(Error)
   })
 
+  it('validates and passes through `edit`', () => {
+    const initial = { title: 'My team', payload: { v: 1 }, tags: { teamType: 'manual' }, lang: 'en', explanation: 'x', demoUrl: '' }
+    const r = norm({ ...valid(), edit: { id: 'abc', version: 2, initial } })
+    if (r instanceof Error) throw r
+    expect(r.edit).toEqual({ id: 'abc', version: 2, initial })
+    expect(norm(valid())).not.toHaveProperty('edit')
+    expect(norm({ ...valid(), edit: { id: '', version: 2, initial } })).toBeInstanceOf(Error)
+    expect(norm({ ...valid(), edit: { id: 'abc', version: 1.5, initial } })).toBeInstanceOf(Error)
+    expect(norm({ ...valid(), edit: { id: 'abc', version: 2, initial: { ...initial, tags: null } } })).toBeInstanceOf(Error)
+    expect(norm({ ...valid(), edit: 'abc' })).toBeInstanceOf(Error)
+  })
+
+  it('validates and passes through `onClose`', () => {
+    const onClose = () => undefined
+    const r = norm({ ...valid(), onClose })
+    if (r instanceof Error) throw r
+    expect(r.onClose).toBe(onClose)
+    expect(norm(valid())).not.toHaveProperty('onClose')
+    expect(norm({ ...valid(), onClose: 'refresh' })).toBeInstanceOf(Error)
+  })
+
   it('maps lang: a Lang, a BCP-47 tag, or the fallback', () => {
     const lang = (l?: string) => {
       const r = norm({ ...valid(), lang: l }, () => 'zh-Hans')

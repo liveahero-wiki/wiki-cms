@@ -1,16 +1,14 @@
-import { and, count, eq, gte } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { GROUP_ID_RE, MAX_BODY_BYTES, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, DAY_MS, TYPE_ID_RE } from '../../config.ts'
+import { GROUP_ID_RE, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, TYPE_ID_RE } from '../../config.ts'
 import { getDb } from '../db/client.ts'
-import { ip_block_tab, submission_tab } from '../db/schema.ts'
+import { submission_tab } from '../db/schema.ts'
 import { getGroup, getRoster } from '../groups.ts'
 import { aiModerate } from '../ai-moderation.ts'
 import { notifyNewSubmission } from '../discord-notify.ts'
 import { apiError, sha256Hex, type AppEnv } from '../http.ts'
-import { ipKey } from '../ip.ts'
 import { blobKey, buildBlob, cfgTag, emptyBlob, pubTag } from '../publish.ts'
+import { checkClient, checkHuman, countIpRecent, countPending, countryOf, isHoneypot, readBody } from '../submit-guards.ts'
 import { validateSubmission } from '../submission-validate.ts'
-import { verifyTurnstile } from '../turnstile.ts'
 import { getType } from '../types-runtime.ts'
 
 export const publicRoutes = new Hono<AppEnv>()
@@ -33,6 +31,7 @@ publicRoutes.get('/types/:type', async (c) => {
     demoUrl: d.demoUrl,
     turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
     disclaimer: d.disclaimer ?? null,
+    submitAuth: rt.submitAuth,
   })
   res.headers.set('Cache-Control', 'public, max-age=3600')
   res.headers.set('Cache-Tag', cfgTag(id))
@@ -115,36 +114,22 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
   c.header(ACAO, origin)
   c.header('Vary', 'Origin')
 
+  // 1b. Types that require a contributor account refuse anonymous submissions (the CORS headers above let the embed read this).
+  if (rt.submitAuth === 'account') return apiError(c, 401, 'account_required', 'Sign in with a contributor account to submit.')
+
   // 2. Body size + JSON
-  const len = Number(c.req.header('Content-Length') ?? '0')
-  if (len > MAX_BODY_BYTES) return apiError(c, 413, 'too_large', 'Request body too large.')
-  const raw = await c.req.text()
-  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) return apiError(c, 413, 'too_large', 'Request body too large.')
-  let body: Record<string, unknown>
-  try {
-    const parsed = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('not an object')
-    body = parsed
-  } catch {
-    return apiError(c, 400, 'bad_json', 'Invalid JSON body.')
-  }
+  const read = await readBody(c)
+  if (!read.ok) return read.res
+  const body = read.body
 
   // 3. Honeypot
-  if (typeof body.website === 'string' ? body.website !== '' : body.website !== undefined && body.website !== null) {
-    return c.json({ id: crypto.randomUUID(), state: 'pending' }, 202)
-  }
+  if (isHoneypot(body)) return c.json({ id: crypto.randomUUID(), state: 'pending' }, 202)
 
-  // 4. IP + blocklist
-  const ip = c.req.header('CF-Connecting-IP') ?? null
-  const key = (ip && ipKey(ip)) || 'unknown'
+  // 4 + 5. IP blocklist + rate limit
+  const client = await checkClient(c)
+  if (client instanceof Response) return client
+  const { ip, key } = client
   const db = getDb(c.env)
-  if (await db.select({ k: ip_block_tab.ipKey }).from(ip_block_tab).where(eq(ip_block_tab.ipKey, key)).get()) {
-    return apiError(c, 403, 'ip_blocked', 'Submissions from your network are currently blocked.')
-  }
-
-  // 5. Rate limit
-  const rl = await c.env.SUBMIT_LIMITER.limit({ key })
-  if (!rl.success) return apiError(c, 429, 'rate_limited', 'Too many submissions, please try again in a minute.')
 
   // 6. Group
   if (!GROUP_ID_RE.test(groupId)) return apiError(c, 404, 'unknown_group', 'Unknown group.')
@@ -157,33 +142,12 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
   if (!v.ok) return apiError(c, 400, 'validation_failed', 'Some fields are invalid.', v.errors)
 
   // 8. Turnstile (last of the cheap checks: tokens are single-use)
-  const hostnames = rt.allowedOrigins.flatMap((o) => {
-    try {
-      return [new URL(o).hostname]
-    } catch {
-      return []
-    }
-  })
-  const human = await verifyTurnstile({
-    secret: c.env.TURNSTILE_SECRET_KEY,
-    token: body.turnstileToken,
-    ip,
-    allowedHostnames: hostnames,
-    action: 'submit',
-  })
-  if (!human) return apiError(c, 403, 'turnstile_failed', 'Verification failed. Please try again.')
+  const notHuman = await checkHuman(c, rt, body, ip)
+  if (notHuman) return notHuman
 
   // 9. Caps
-  const dayAgo = now - DAY_MS
-  const [{ n: recent } = { n: 0 }] = await db
-    .select({ n: count() })
-    .from(submission_tab)
-    .where(and(eq(submission_tab.ipKey, key), eq(submission_tab.type, typeId), gte(submission_tab.createdAt, dayAgo)))
-  if (recent >= SUBMISSIONS_PER_IP_PER_DAY) return apiError(c, 429, 'daily_cap', 'Daily submission limit reached.')
-  const [{ n: pending } = { n: 0 }] = await db
-    .select({ n: count() })
-    .from(submission_tab)
-    .where(and(eq(submission_tab.type, typeId), eq(submission_tab.state, 'pending')))
+  if ((await countIpRecent(c, key, typeId, now)) >= SUBMISSIONS_PER_IP_PER_DAY) return apiError(c, 429, 'daily_cap', 'Daily submission limit reached.')
+  const pending = await countPending(c, typeId)
   if (pending >= MAX_PENDING_PER_TYPE) return apiError(c, 429, 'pending_cap', 'Too many submissions are waiting for review. Please try again later.')
 
   // 10. Insert
@@ -207,7 +171,7 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
     stateChangedAt: now,
     ip,
     ipKey: key,
-    country: (c.req.raw as { cf?: { country?: string } }).cf?.country ?? null,
+    country: countryOf(c),
   })
 
   // 11. Optional AI classification (never blocks the submission).

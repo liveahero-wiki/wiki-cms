@@ -22,6 +22,13 @@
       "when": 1791809858620,
       "tag": "0002_little_sauron",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792281065162,
+      "tag": "0003_outstanding_exiles",
+      "breakpoints": true
     }
   ]
 }

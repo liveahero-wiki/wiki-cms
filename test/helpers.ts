@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers'
 import { vi, type Mock } from 'vitest'
 import type { Purger } from '../src/core/cache.ts'
 import { createApp } from '../src/core/app.ts'
+import { hashContribToken, newContribToken } from '../src/core/contrib-auth.ts'
 import { clearGroupCaches } from '../src/core/groups.ts'
 import { clearTypeCache } from '../src/core/types-runtime.ts'
 import type { Deps } from '../src/core/http.ts'
@@ -64,7 +65,7 @@ export const discordStatus = { value: 204 }
 export async function resetState(opts: { turnstile?: boolean; registry?: unknown } = {}) {
   clearGroupCaches()
   clearTypeCache()
-  for (const t of ['submission_tab', 'moderator_permission_tab', 'invite_tab', 'ip_block_tab', 'audit_log_tab', 'session_tab', 'account_tab', 'verification_tab', 'user_tab', 'submission_type_tab']) {
+  for (const t of ['submission_revision_tab', 'contrib_token_tab', 'contributor_tab', 'submission_tab', 'moderator_permission_tab', 'invite_tab', 'ip_block_tab', 'audit_log_tab', 'session_tab', 'account_tab', 'verification_tab', 'user_tab', 'submission_type_tab']) {
     await env.DB.prepare(`DELETE FROM ${t}`).run()
   }
   const keys = await env.KV.list()
@@ -127,4 +128,59 @@ export function post(h: Harness, group: string, body: unknown, headers: Record<s
 export async function rows(where = '1=1') {
   const r = await env.DB.prepare(`SELECT * FROM submission_tab WHERE ${where} ORDER BY created_at`).all<Record<string, unknown>>()
   return r.results
+}
+
+// ---- contributor accounts ----
+export const DAY = 86_400_000
+
+/** A Discord snowflake whose embedded creation time is `ms`. */
+export const snowflakeAt = (ms: number): string => ((BigInt(ms) - 1420070400000n) << 22n).toString()
+
+async function hmacSigned(value: string, secret: string) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
+  let bin = ''
+  for (const b of new Uint8Array(sig)) bin += String.fromCharCode(b)
+  return encodeURIComponent(`${value}.${btoa(bin)}`)
+}
+
+/** Creates a user (+ optional permissions, Discord account) and a real BetterAuth session; returns the Cookie header value. */
+export async function sessionCookie(userId: string, opts: { types?: string[]; discordId?: string } = {}): Promise<string> {
+  const now = Date.now()
+  await env.DB.prepare('INSERT OR IGNORE INTO user_tab (id,name,email,email_verified,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(userId, `User ${userId}`, `${userId}@users.invalid`, 0, now, now).run()
+  for (const t of opts.types ?? []) {
+    await env.DB.prepare('INSERT OR IGNORE INTO moderator_permission_tab (user_id,type,granted_by,created_at) VALUES (?,?,?,?)').bind(userId, t, null, now).run()
+  }
+  if (opts.discordId) {
+    await env.DB.prepare('INSERT OR IGNORE INTO account_tab (id,account_id,provider_id,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(`acc-${userId}`, opts.discordId, 'discord', userId, now, now).run()
+  }
+  const token = `tok-${userId}-${crypto.randomUUID()}`
+  await env.DB.prepare('INSERT INTO session_tab (id,expires_at,token,created_at,updated_at,user_id) VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(), now + DAY, token, now, now, userId).run()
+  return `better-auth.session_token=${await hmacSigned(token, env.BETTER_AUTH_SECRET)}`
+}
+
+/** Creates a contributor (user + profile) with a live bearer token; returns the raw token. */
+export async function contribLogin(userId: string, opts: { displayName?: string; now?: number; expiresAt?: number } = {}): Promise<string> {
+  const now = opts.now ?? Date.now()
+  await env.DB.prepare('INSERT OR IGNORE INTO user_tab (id,name,email,email_verified,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(userId, `User ${userId}`, `${userId}@users.invalid`, 0, now, now).run()
+  await env.DB.prepare('INSERT OR IGNORE INTO contributor_tab (user_id,display_name,trust_level,created_at) VALUES (?,?,0,?)').bind(userId, opts.displayName ?? `Contributor ${userId}`, now).run()
+  const token = newContribToken()
+  await env.DB.prepare('INSERT INTO contrib_token_tab (token_hash,user_id,origin,created_at,expires_at,last_used_at) VALUES (?,?,?,?,?,?)')
+    .bind(await hashContribToken(token), userId, ORIGIN, now, opts.expiresAt ?? now + 30 * DAY, now)
+    .run()
+  return token
+}
+
+export function contribApi(h: Harness, token: string | null, method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
+  return h.fetch(`/api/contrib${path}`, {
+    method,
+    headers: {
+      Origin: ORIGIN,
+      'CF-Connecting-IP': '203.0.113.77',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  })
 }

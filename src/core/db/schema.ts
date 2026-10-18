@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // ---- BetterAuth tables (names mapped via modelName in auth.ts) ----
 
@@ -81,6 +81,8 @@ export const submission_type_tab = sqliteTable('submission_type_tab', {
   webhookPerHour: integer('webhook_per_hour').notNull().default(10),
   webhookWindowStart: integer('webhook_window_start').notNull().default(0),
   webhookWindowCount: integer('webhook_window_count').notNull().default(0),
+  // 'anonymous' = Origin+Turnstile only; 'account' = a signed-in contributor (bearer token) is required to submit.
+  submitAuth: text('submit_auth', { enum: ['anonymous', 'account'] }).notNull().default('anonymous'),
 })
 
 export const submission_tab = sqliteTable(
@@ -110,11 +112,71 @@ export const submission_tab = sqliteTable(
     country: text('country'),
     aiVerdict: text('ai_verdict'),
     aiReason: text('ai_reason'),
+    // Owner (contributor account); null for legacy anonymous rows. Never exposed in the public blob.
+    userId: text('user_id').references(() => user_tab.id, { onDelete: 'set null' }),
   },
   (t) => [
     index('submission_list').on(t.type, t.groupId, t.state, sql`${t.createdAt} DESC`),
     index('submission_state').on(t.state, t.stateChangedAt),
     index('submission_ip').on(t.ipKey, t.createdAt),
+    index('submission_user').on(t.userId, t.createdAt),
+  ],
+)
+
+// ---- Contributor accounts (sign-in is shared by every submission type) ----
+
+export const contributor_tab = sqliteTable('contributor_tab', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user_tab.id, { onDelete: 'cascade' }),
+  displayName: text('display_name').notNull(),
+  // Reserved for later auto-approve of trusted contributors; unused for now.
+  trustLevel: integer('trust_level').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+})
+
+/** Opaque bearer tokens for /api/contrib/*. Only the SHA-256 is stored. Never accepted by /api/admin/*. */
+export const contrib_token_tab = sqliteTable(
+  'contrib_token_tab',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user_tab.id, { onDelete: 'cascade' }),
+    origin: text('origin').notNull(),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    lastUsedAt: integer('last_used_at').notNull(),
+  },
+  (t) => [index('contrib_token_user').on(t.userId), index('contrib_token_expires').on(t.expiresAt)],
+)
+
+/** A contributor's proposed edit of an already-published submission. The published row keeps serving until it is approved. */
+export const submission_revision_tab = sqliteTable(
+  'submission_revision_tab',
+  {
+    id: text('id').primaryKey(),
+    submissionId: text('submission_id')
+      .notNull()
+      .references(() => submission_tab.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => user_tab.id, { onDelete: 'set null' }),
+    state: text('state', { enum: ['pending', 'approved', 'rejected', 'withdrawn'] }).notNull(),
+    baseVersion: integer('base_version').notNull(),
+    title: text('title').notNull().default(''),
+    payload: text('payload').notNull(),
+    tags: text('tags').notNull(),
+    lang: text('lang').notNull(),
+    explanation: text('explanation').notNull(),
+    explanationHtml: text('explanation_html').notNull(),
+    demoUrl: text('demo_url').notNull(),
+    rejectReason: text('reject_reason'),
+    createdAt: integer('created_at').notNull(),
+    decidedAt: integer('decided_at'),
+    decidedBy: text('decided_by'),
+  },
+  (t) => [
+    uniqueIndex('submission_revision_open').on(t.submissionId).where(sql`${t.state} = 'pending'`),
+    index('submission_revision_state').on(t.state, t.createdAt),
   ],
 )
 
@@ -172,6 +234,9 @@ export const schema = {
   verification_tab,
   submission_type_tab,
   submission_tab,
+  contributor_tab,
+  contrib_token_tab,
+  submission_revision_tab,
   moderator_permission_tab,
   invite_tab,
   ip_block_tab,
