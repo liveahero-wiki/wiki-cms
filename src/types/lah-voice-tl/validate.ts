@@ -1,12 +1,15 @@
 import type { FieldError, GroupInfo, ValidateContext, ValidateResult } from '../../core/types-registry.ts'
-import { KEY_RE, err, isObj, readBase, readNote, readText, sameAsBase } from '../tl-text.ts'
+import { KEY_RE, err, isObj, readBase, readNote, readOptionalText, readText, sameAsBase } from '../tl-text.ts'
 
 export interface VoiceLine {
   /** `voice_<resourceName>_<part>` */
   key: string
   /** The EN text the contributor saw (empty when there was none); used to detect conflicts at sync time. */
   base: string
+  /** The EN suggestion; empty only when `jp` is given. */
   text: string
+  /** The Japanese transcription of a line the game (and the sheet) has no Japanese text for. */
+  jp?: string
 }
 export interface VoicePayload {
   resourceName: string
@@ -69,11 +72,19 @@ export function validateVoicePayload(input: unknown, _group?: GroupInfo, ctx: Va
       }
     }
     const base = readBase(errors, `${p}.base`, raw.base)
-    const text = readText(errors, `${p}.text`, raw.text)
+    // A line the game has no Japanese text for may carry the transcription; then the translation is optional.
+    const jp = readOptionalText(errors, `${p}.jp`, raw.jp)
+    if (jp !== undefined && keyOk && known && Object.hasOwn(known, key as string)) {
+      const entry = known[key as string]
+      if (isObj(entry) && typeof entry.jp === 'string' && entry.jp.trim()) {
+        errors.push(err(`${p}.jp`, 'jp_not_allowed', 'This line already has Japanese text.'))
+      }
+    }
+    const text = jp === undefined ? readText(errors, `${p}.text`, raw.text) : (readOptionalText(errors, `${p}.text`, raw.text) ?? '')
     if (text && typeof raw.base === 'string' && sameAsBase(text, base)) {
       errors.push(err(`${p}.text`, 'text_same_as_base', 'The suggestion is the same as the current text.'))
     }
-    if (keyOk) lines.push({ key: key as string, base, text })
+    if (keyOk) lines.push({ key: key as string, base, text, ...(jp !== undefined ? { jp } : {}) })
   })
 
   const note = readNote(errors, 'payload.note', input.note)

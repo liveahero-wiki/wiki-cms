@@ -73,6 +73,44 @@ describe('lah-voice-tl payload', () => {
     expect(run(payload({ lines: [line('a', { base: 'Same', text: 'same' })] })).ok).toBe(true)
   })
 
+  describe('jp transcription', () => {
+    const noJp = { version: '1', resources: { ryekie: { voice_ryekie_action: { jp: '' }, voice_ryekie_win: { jp: 'y' } } } }
+
+    it('is kept (trimmed, newlines normalized) next to the translation', () => {
+      const r = run(payload({ lines: [line('action', { base: '', text: 'Go', jp: '  行く\r\nぞ ' })] }), noJp)
+      expect(r).toEqual({ ok: true, value: { resourceName: 'ryekie', lines: [{ key: 'voice_ryekie_action', base: '', text: 'Go', jp: '行く\nぞ' }] } })
+    })
+
+    it('makes the translation optional; without a jp it stays required', () => {
+      const r = run(payload({ lines: [line('action', { base: '', text: '', jp: '行くぞ' })] }), noJp)
+      expect(r).toEqual({ ok: true, value: { resourceName: 'ryekie', lines: [{ key: 'voice_ryekie_action', base: '', text: '', jp: '行くぞ' }] } })
+      expect(run(payload({ lines: [line('action', { text: undefined, jp: '行くぞ' })] }), noJp).ok).toBe(true)
+      expect(errs(run(payload({ lines: [line('action', { text: ' ', jp: '  ' })] }), noJp))).toEqual(['payload.lines.0.text:text_required'])
+    })
+
+    it('a blank jp counts as absent and is dropped', () => {
+      const r = run(payload({ lines: [line('action', { jp: ' ' })] }), noJp)
+      expect(r.ok && r.value.lines[0]).toEqual({ key: 'voice_ryekie_action', base: "Let's go!", text: 'Here we go!' })
+    })
+
+    it('is plain text of at most 2000 characters', () => {
+      for (const t of ['<b>', '{{ x }}', 'nul\u0000', 5]) {
+        expect(errs(run(payload({ lines: [line('action', { jp: t })] }), noJp))).toEqual(['payload.lines.0.jp:text_invalid'])
+      }
+      expect(errs(run(payload({ lines: [line('action', { jp: 'あ'.repeat(2001) })] }), noJp))).toEqual(['payload.lines.0.jp:text_too_long'])
+    })
+
+    it('is refused for a line the roster already has Japanese text for', () => {
+      expect(errs(run(payload({ lines: [line('win', { jp: '勝った' })] }), noJp))).toEqual(['payload.lines.0.jp:jp_not_allowed'])
+      expect(run(payload({ lines: [line('win', { jp: '勝った' })] })).ok).toBe(true) // soft check: no roster, no refusal
+    })
+
+    it('is part of the moderation text', () => {
+      const text = lahVoiceTl.moderationText?.({ resourceName: 'ryekie', lines: [{ key: 'voice_ryekie_action', base: '', text: 'Go', jp: '行くぞ' }] })
+      expect(text).toContain('行くぞ')
+    })
+  })
+
   it('note: optional, at most 500 characters, plain', () => {
     expect(run(payload({ note: 'x'.repeat(500) })).ok).toBe(true)
     expect(errs(run(payload({ note: 'x'.repeat(501) })))).toEqual(['payload.note:note_too_long'])

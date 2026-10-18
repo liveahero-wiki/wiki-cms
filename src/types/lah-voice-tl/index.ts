@@ -18,5 +18,5 @@ export const lahVoiceTl: SubmissionTypeDef<VoicePayload> = {
   publicList: false,
   rosterPath: '/api/voice-roster.json',
   validatePayload: validateVoicePayload,
-  moderationText: (p) => moderationSnippet(p.lines.map((l) => l.text)),
+  moderationText: (p) => moderationSnippet(p.lines.flatMap((l) => (l.jp ? [l.jp, l.text] : [l.text]))),
 }

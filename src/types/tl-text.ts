@@ -47,6 +47,17 @@ export function readText(errors: FieldError[], path: string, v: unknown): string
   return text
 }
 
+/** An optional text (the JP transcription of a voice line): plain, trimmed, same limits as `readText`; undefined when absent or blank. */
+export function readOptionalText(errors: FieldError[], path: string, v: unknown): string | undefined {
+  if (v === undefined || v === null) return undefined
+  if (typeof v !== 'string') {
+    errors.push(err(path, 'text_invalid', 'Must be text.'))
+    return undefined
+  }
+  if (!normalizeNewlines(v).trim()) return undefined
+  return readText(errors, path, v)
+}
+
 /** `base`: the text the contributor saw (compared at sync time). Any string up to the limit, may be empty. Kept as sent. */
 export function readBase(errors: FieldError[], path: string, v: unknown): string {
   if (typeof v !== 'string' || v.length > TEXT_MAX) {
