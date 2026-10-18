@@ -165,7 +165,9 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
   const ctx: PluginContext = { uiLang: 'en', theme: resolved, group: { id: groupId, options: chosen?.options ?? {} } }
 
   const normalized = explanation.replace(/\r\n?/g, '\n').trim()
-  const max = config?.explanation.maxLength ?? 5000
+  const hasExplanation = !config || !!config.explanation
+  const hasDemo = !config || !!config.demoUrl
+  const max = config?.explanation?.maxLength ?? 5000
   const mdErrors = useMemo(() => (policy && normalized ? policy.checkExplanation(normalized) : []), [policy, normalized])
   const previewHtml = useMemo(() => (policy && tab === 'preview' ? policy.renderExplanation(normalized) : ''), [policy, tab, normalized])
 
@@ -193,7 +195,9 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
     setGeneral(null)
     const local: FieldError[] = []
     if (config?.title) local.push(...checkTitle(title, config.title).errors)
-    if (!normalized) local.push({ path: 'explanation', code: 'explanation_required', message: 'An explanation is required.' })
+    if (!hasExplanation) {
+      /* this type has no explanation */
+    } else if (!normalized) local.push({ path: 'explanation', code: 'explanation_required', message: 'An explanation is required.' })
     else if (normalized.length > max) local.push({ path: 'explanation', code: 'explanation_too_long', message: `The explanation must be at most ${max} characters.` })
     else local.push(...mdErrors)
     if (editorFailed && !jsonValid) local.push({ path: 'payload', code: 'payload_invalid', message: 'The payload is not valid JSON.' })
@@ -338,6 +342,7 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
           )
         })}
 
+        {hasExplanation && (
         <div class="field">
           <div class="field-top">
             <span class="field-label" id="expl-label">
@@ -385,7 +390,9 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
           </div>
           <FieldErrors id="err-expl" errors={[...byPath('explanation'), ...mdErrors.filter((m) => !byPath('explanation').some((s) => s.code === m.code))]} />
         </div>
+        )}
 
+        {hasDemo && (
         <label class="field">
           <span class="field-label">Demo URL</span>
           <input
@@ -397,12 +404,13 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
             aria-invalid={byPath('demoUrl').length > 0 || undefined}
             aria-describedby="err-demo"
           />
-          {config && <span class="hint">Allowed hosts: {config.demoUrl.allowedHosts.join(', ')}</span>}
+          {config?.demoUrl && <span class="hint">Allowed hosts: {config.demoUrl.allowedHosts.join(', ')}</span>}
           <FieldErrors id="err-demo" errors={byPath('demoUrl')} />
         </label>
+        )}
 
         <div class="field">
-          <span class="field-label">Team formation</span>
+          <span class="field-label">{hasExplanation ? 'Team formation' : 'Details'}</span>
           {td.plugin.status === 'ready' && !editorFailed ? (
             <EditorMount
               plugin={td.plugin.plugin}

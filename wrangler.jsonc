@@ -29,6 +29,8 @@
   "vars": {
     "PUBLIC_URL": "https://wiki-cms.rongjie.workers.dev",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFTkkjhm4gH_j2Ca",
-    "AI_MODERATION": "off"
+    "AI_MODERATION": "off",
+    "GITHUB_REPO": "liveahero-wiki/liveahero-wiki.github.io",
+    "GITHUB_BASE_BRANCH": "master"
   }
 }

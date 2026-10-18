@@ -122,6 +122,10 @@ interface FieldError { path: string; code: string; message: string; params?: Rec
 - Dark mode: follow the `html[data-theme="dark"]` convention (and `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-theme="light"])`). Do not rely on `ctx.theme`.
 - Touch targets ≥ 40 px, visible focus rings, respect `prefers-reduced-motion`.
 
+## Types without a public list or form
+
+Types that set `publicList: false` (the translation types) are never rendered by the embed list, and their suggestion UI is the wiki's own editor, not the embed form. Their plugin is loaded by the **admin portal only**, so it still has to satisfy the contract above (`apiVersion: 1`, `mountSummary`, `mountDetail`, `mountEditor` for a moderator's edit), but needs no public styling and no `defaultPayload` that makes sense for end users. Such types also have `explanation` and `demoUrl` set to `null` in `TypeConfig`, which the plugin does not see. The contract itself is unchanged.
+
 ## Data and URLs
 
 The plugin runs on the wiki **and** on the Worker origin. Resolve every data URL relative to the module (`new URL('../team-roster.json', import.meta.url)` or an absolute wiki URL), never against `location`. Cache fetched data at module level (the same plugin instance serves many cards).

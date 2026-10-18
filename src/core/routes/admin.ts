@@ -17,6 +17,7 @@ import {
   submission_type_tab,
   user_tab,
 } from '../db/schema.ts'
+import { encodeExternal, parseExternal } from '../external.ts'
 import { getGroup, getRoster, listGroups } from '../groups.ts'
 import { apiError, type AppEnv, type Ctx } from '../http.ts'
 import { INVITE_PREFIX_LEN, hashInviteToken, newInviteToken } from '../invites.ts'
@@ -57,6 +58,8 @@ function toAdminRow(r: SubmissionRow) {
     country: r.country,
     aiVerdict: r.aiVerdict,
     aiReason: r.aiReason,
+    external: parseExternal(r.external),
+    externalAt: r.externalAt,
   }
 }
 
@@ -463,6 +466,8 @@ adminRoutes.patch('/submissions/:id', mod, async (c) => {
   const now = deps.now()
   const db = getDb(c.env)
   const original = row.original ?? JSON.stringify({ ...before, payload: JSON.parse(before.payload), tags: JSON.parse(before.tags) })
+  // A changed payload re-queues a row whose last outside step ended in a conflict (the moderator just fixed it).
+  const requeue = changed.includes('payload') && ['conflict', 'partial'].includes(parseExternal(row.external)?.outcome?.status ?? '')
   const res = await db
     .update(submission_tab)
     .set({
@@ -472,6 +477,7 @@ adminRoutes.patch('/submissions/:id', mod, async (c) => {
       version: row.version + 1,
       updatedAt: now,
       moderatedBy: c.get('user').id,
+      ...(requeue ? { external: null, externalAt: null } : {}),
     })
     .where(and(eq(submission_tab.id, row.id), eq(submission_tab.version, row.version)))
     .run()
@@ -516,9 +522,40 @@ adminRoutes.post('/submissions/:id/state', mod, async (c) => {
 
   const now = deps.now()
   const db = getDb(c.env)
+
+  // Types with an approval hook (e.g. a page edit that becomes a pull request) must succeed before the row is approved.
+  let externalPatch: { external: string; externalAt: number } | null = null
+  if (body.state === 'approved' && rt.def.onApprove) {
+    const owner = row.userId ? (await loadOwners(db, [row.userId])).get(row.userId) : undefined
+    const hook = await rt.def.onApprove(
+      c.env,
+      {
+        id: row.id,
+        type: row.type,
+        groupId: row.groupId,
+        version: row.version,
+        lang: row.lang,
+        payload: JSON.parse(row.payload),
+        external: parseExternal(row.external),
+        owner: owner ? { id: owner.id, displayName: owner.displayName } : null,
+      },
+      now,
+    )
+    // A failed hook adds to what is already stored (e.g. the PR number) instead of replacing it.
+    const next = hook.external === undefined ? undefined : hook.ok ? hook.external : { ...parseExternal(row.external), ...(hook.external as object) }
+    const stored = next === undefined ? null : encodeExternal(next)
+    if (stored && !stored.ok) return apiError(c, 500, 'bad_external', stored.message)
+    if (stored?.ok) externalPatch = { external: stored.json, externalAt: now }
+    if (!hook.ok) {
+      // Keep why it failed next to the row (the version is not bumped: the moderator just retries or edits it).
+      if (externalPatch) await db.update(submission_tab).set(externalPatch).where(and(eq(submission_tab.id, row.id), eq(submission_tab.version, row.version))).run()
+      return apiError(c, hook.status, hook.code, hook.message)
+    }
+  }
+
   const res = await db
     .update(submission_tab)
-    .set({ state: body.state, stateChangedAt: now, updatedAt: now, version: row.version + 1, moderatedBy: c.get('user').id })
+    .set({ state: body.state, stateChangedAt: now, updatedAt: now, version: row.version + 1, moderatedBy: c.get('user').id, ...(externalPatch ?? {}) })
     .where(and(eq(submission_tab.id, row.id), eq(submission_tab.version, row.version)))
     .run()
   if (!res.meta.changes) return apiError(c, 409, 'version_conflict', 'Someone else changed this submission; reload it.')
@@ -541,9 +578,13 @@ adminRoutes.post('/submissions/bulk-state', mod, async (c) => {
   const ids = [...new Set(body.ids as string[])]
   const db = getDb(c.env)
   const rows = await db.select().from(submission_tab).where(inArray(submission_tab.id, ids)).all()
+  const types = new Map(await Promise.all([...new Set(rows.map((r) => r.type))].map(async (t) => [t, await getType(c.env, t)] as const)))
   for (const r of rows) {
     const denied = checkTypePermission(c, r.type)
     if (denied) return denied
+    if (body.state === 'approved' && r.state !== 'approved' && types.get(r.type)?.def.onApprove) {
+      return apiError(c, 400, 'bulk_not_allowed', 'Submissions of this type must be approved one by one.')
+    }
   }
   const now = deps.now()
   const toRepublish = new Map<string, Set<string>>()
@@ -566,7 +607,7 @@ adminRoutes.post('/submissions/bulk-state', mod, async (c) => {
   }
   let purgeWarning: string | null = null
   for (const [typeId, groups] of toRepublish) {
-    const rt = await getType(c.env, typeId)
+    const rt = types.get(typeId)
     if (rt) purgeWarning = purgeNote(await republishMany(c.env, typeId, rt, groups, deps.purge)) ?? purgeWarning
   }
   return c.json({ changed: changedIds.length, purgeWarning })

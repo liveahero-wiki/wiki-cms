@@ -7,7 +7,7 @@ import { aiModerate } from '../ai-moderation.ts'
 import { notifyNewSubmission } from '../discord-notify.ts'
 import { apiError, sha256Hex, type AppEnv } from '../http.ts'
 import { blobKey, buildBlob, cfgTag, emptyBlob, pubTag } from '../publish.ts'
-import { checkClient, checkHuman, countIpRecent, countPending, countryOf, isHoneypot, readBody } from '../submit-guards.ts'
+import { checkClient, checkHuman, countIpRecent, countPending, countryOf, isHoneypot, moderationInput, readBody } from '../submit-guards.ts'
 import { validateSubmission } from '../submission-validate.ts'
 import { getType } from '../types-runtime.ts'
 
@@ -27,11 +27,11 @@ publicRoutes.get('/types/:type', async (c) => {
     langs: d.langs,
     tags: d.tags,
     title: d.title ?? null,
-    explanation: d.explanation,
-    demoUrl: d.demoUrl,
+    explanation: d.explanation ?? null,
+    demoUrl: d.demoUrl ?? null,
     turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
     disclaimer: d.disclaimer ?? null,
-    submitAuth: rt.submitAuth,
+    submitAuth: d.accountOnly ? 'account' : rt.submitAuth,
   })
   res.headers.set('Cache-Control', 'public, max-age=3600')
   res.headers.set('Cache-Tag', cfgTag(id))
@@ -45,6 +45,7 @@ publicRoutes.get('/submissions/:type/:group', async (c) => {
   const groupId = c.req.param('group')
   const rt = TYPE_ID_RE.test(typeId) ? await getType(c.env, typeId) : null
   if (!rt) return apiError(c, 404, 'unknown_type', 'Unknown submission type.')
+  if (rt.def.publicList === false) return apiError(c, 404, 'not_public', 'This type has no public list.')
   if (!GROUP_ID_RE.test(groupId)) return apiError(c, 404, 'unknown_group', 'Unknown group.')
 
   const group = await getGroup(c.env, typeId, rt, groupId, c.get('deps').now())
@@ -115,10 +116,10 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
   c.header('Vary', 'Origin')
 
   // 1b. Types that require a contributor account refuse anonymous submissions (the CORS headers above let the embed read this).
-  if (rt.submitAuth === 'account') return apiError(c, 401, 'account_required', 'Sign in with a contributor account to submit.')
+  if (rt.submitAuth === 'account' || rt.def.accountOnly) return apiError(c, 401, 'account_required', 'Sign in with a contributor account to submit.')
 
   // 2. Body size + JSON
-  const read = await readBody(c)
+  const read = await readBody(c, rt.def.maxBodyBytes)
   if (!read.ok) return read.res
   const body = read.body
 
@@ -176,8 +177,8 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
 
   // 11. Optional AI classification (never blocks the submission).
   if (c.env.AI && c.env.AI_MODERATION !== 'off') {
-    const moderationText = [val.title, val.explanation, val.demoUrl, rt.def.moderationText?.(val.payload)].filter(Boolean).join('\n')
-    c.executionCtx.waitUntil(aiModerate(c.env, id, moderationText, now))
+    const text = moderationInput(rt, val)
+    if (text) c.executionCtx.waitUntil(aiModerate(c.env, id, text, now))
   }
 
   // 12. Optional Discord notification for moderators (best-effort, rate limited, never blocks).

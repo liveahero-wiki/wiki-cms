@@ -244,12 +244,28 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
         )}
       </div>
 
-      <div class="card-explanation">
-        <button type="button" class="btn-link" aria-expanded={showExplanation} onClick={() => setShowExplanation((v) => !v)}>
-          {showExplanation ? 'Hide explanation' : 'Show explanation'}
-        </button>
-        {showExplanation && <Explanation html={item.explanationHtml} />}
-      </div>
+      {item.explanation && (
+        <div class="card-explanation">
+          <button type="button" class="btn-link" aria-expanded={showExplanation} onClick={() => setShowExplanation((v) => !v)}>
+            {showExplanation ? 'Hide explanation' : 'Show explanation'}
+          </button>
+          {showExplanation && <Explanation html={item.explanationHtml} />}
+        </div>
+      )}
+
+      {item.external?.outcome && (
+        <p class="meta-line" data-testid="outcome">
+          <span>
+            Result: <strong>{item.external.outcome.status}</strong>
+            {item.external.outcome.label ? ` — ${item.external.outcome.label}` : ''}
+          </span>
+          {item.external.outcome.url && (
+            <a href={item.external.outcome.url} target="_blank" rel="noopener noreferrer">
+              Open ↗
+            </a>
+          )}
+        </p>
+      )}
 
       <p class="meta-line">
         <span>

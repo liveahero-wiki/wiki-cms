@@ -191,10 +191,10 @@ describe('roster soft check', () => {
 describe('type def completeness', () => {
   it('has explanation templates for all langs that pass the markdown policy', () => {
     for (const lang of LANGS) {
-      const t = lahTeamFormation.explanation.template[lang]
+      const t = lahTeamFormation.explanation!.template[lang]
       expect(t, lang).toBeTruthy()
       expect(checkExplanation(t), lang).toEqual([])
-      expect(t.length).toBeLessThan(lahTeamFormation.explanation.maxLength)
+      expect(t.length).toBeLessThan(lahTeamFormation.explanation!.maxLength)
     }
   })
   it('has tag labels for all langs', () => {

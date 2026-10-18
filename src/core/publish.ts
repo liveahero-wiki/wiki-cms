@@ -84,6 +84,8 @@ export interface RepublishResult {
  * KV first, purge second. A failed purge never throws: it is reported in the result.
  */
 export async function republish(env: Env, typeId: string, rt: ResolvedType, groupId: string, purge: Purger): Promise<RepublishResult> {
+  // Types without a public list have no blob to rebuild.
+  if (rt.def.publicList === false) return { purge: { success: true, errors: [] } }
   const group = await getGroup(env, typeId, rt, groupId)
   if (group) {
     const blob = await buildBlob(env, typeId, rt, groupId, group.options)

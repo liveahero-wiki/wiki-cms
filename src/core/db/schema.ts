@@ -114,6 +114,10 @@ export const submission_tab = sqliteTable(
     aiReason: text('ai_reason'),
     // Owner (contributor account); null for legacy anonymous rows. Never exposed in the public blob.
     userId: text('user_id').references(() => user_tab.id, { onDelete: 'set null' }),
+    // What happened to an approved submission outside this Worker (JSON owned by the type, e.g. the PR a page edit became or the
+    // result of the sheet sync). Only `external.outcome` ({ status, url?, label? }) is shown to the owner. Null = nothing happened yet.
+    external: text('external'),
+    externalAt: integer('external_at'),
   },
   (t) => [
     index('submission_list').on(t.type, t.groupId, t.state, sql`${t.createdAt} DESC`),

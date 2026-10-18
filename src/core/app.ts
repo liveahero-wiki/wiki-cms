@@ -6,6 +6,7 @@ import { adminRoutes } from './routes/admin.ts'
 import { contribRoutes } from './routes/contrib.ts'
 import { internalRoutes } from './routes/internal.ts'
 import { publicRoutes } from './routes/public.ts'
+import { githubWebhookRoutes } from './routes/webhooks.ts'
 
 export function createApp(overrides: Partial<Deps> = {}) {
   const deps: Deps = { purge: defaultPurger, now: () => Date.now(), ...overrides }
@@ -24,6 +25,7 @@ export function createApp(overrides: Partial<Deps> = {}) {
   app.route('/api/contrib', contribRoutes)
   app.route('/api/admin', adminRoutes)
   app.route('/api/internal', internalRoutes)
+  app.route('/api/webhooks/github', githubWebhookRoutes)
   app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
     const res = await getAuth(c.env).handler(c.req.raw)
     // Headers on a handler-produced Response may be immutable; copy before the no-store middleware runs.

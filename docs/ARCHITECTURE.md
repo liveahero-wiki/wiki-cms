@@ -6,7 +6,7 @@ What the code cannot tell you: why it is shaped this way, the platform facts it 
 
 | Layer | Generic (reusable for another wiki) | Game-specific (LAH) |
 |---|---|---|
-| Worker | everything under `src/core/` | `src/types/lah-team-formation/` (validator, tags, explanation templates, limits), registered in `src/types/index.ts` |
+| Worker | everything under `src/core/` | `src/types/lah-team-formation/` (validator, tags, explanation templates, limits), `src/types/lah-voice-tl/` and `lah-bio-tl/` (translation suggestions), registered in `src/types/index.ts` |
 | Embed + admin UI | all of it | none: game UI comes from the plugin |
 | Per-type config (D1, via CLI) | `submission_type_tab` row: allowed origins, plugin URL, groups registry URL, enabled, Discord webhook | the values |
 | Wiki repo | none | plugin, roster JSON, groups registry JSON, page markup |
@@ -92,7 +92,7 @@ The wiki publishes the list of valid groups and their `options` as JSON (`groups
 - Invite links: the token is only ever in the link (SHA-256 hash stored), 24 h, single use, claimed atomically. At claim time the inviter must **still** hold every type, and only the intersection is granted. Moderators cannot invite for types they lack. Revoking a moderator is CLI-only.
 - Mutating admin routes require a JSON content type and `Origin === PUBLIC_URL` (CSRF). `/api/internal/*` takes a bearer `CLI_TOKEN` and never a session.
 - Every moderator or CLI action writes an audit row; housekeeping writes one summary row, only when it deleted something.
-- Admin CSP lives in `public/_headers` and lists the wiki origin as the only external script/connect source (the admin imports the plugin from `plugin_url`).
+- Admin CSP lives in `public/_headers` and lists the wiki origin as the only external script source (the admin imports the plugin from `plugin_url`) and, for `connect-src`, also `https://api.github.com` (the page-edit plugin reads the base file's blob).
 
 ## Contributor accounts
 
@@ -104,6 +104,56 @@ Sign-in for submitters (and, later, other contributors) is separate from moderat
 - Providers are a registry (`src/core/providers.ts`: id, label, configured, `accountCreatedAt`). Only Discord is wired; Reddit/X/GitHub = a registry entry, a `socialProviders` entry in `auth.ts` and secrets. Account linking across providers is not implemented.
 - `contributor_tab` holds the display name (editable, shown to moderators) and a reserved `trust_level`. A type with `submit_auth = 'account'` (`cms type update <id> --submit-auth account`) refuses anonymous POSTs with 401 `account_required`.
 - **Editing:** a contributor can edit only their own submission (`submission_tab.user_id`; legacy anonymous rows have none until a moderator assigns an owner). A never-published row is updated in place; a published row gets a **pending revision** (`submission_revision_tab`, at most one open per submission) and the published version stays live until a moderator approves it (approve copies the fields over, keeps `original`, republishes). The public blob never exposes owner or revision data. Creates/edits go through the same checks as anonymous submits (Origin, honeypot, IP block, rate limiter, Turnstile, caps) plus a per-contributor daily cap.
+
+## Type hooks and work done outside the Worker
+
+A type is more than a team formation: the `SubmissionTypeDef` has optional switches so that other contributions (translation suggestions, page edits) reuse the whole pipeline (accounts, guards, moderation, audit) without core changes. All default to the old behaviour.
+
+| Field | Effect |
+|---|---|
+| `explanation`, `demoUrl` omitted | no explanation/demo is asked or validated (stored as `''`); `GET /api/v1/types/:type` returns `null` for them; the admin hides those fields |
+| `maxBodyBytes` | request body cap for this type's create/edit (default 32 KB, `MAX_BODY_BYTES`); `maxPayloadBytes` still bounds the payload |
+| `accountOnly` | anonymous `POST /api/v1/...` is 401 `account_required` whatever `submit_auth` says in D1; the config reports `submitAuth: 'account'` |
+| `editable: false` | the owner's `PUT /api/contrib/submissions/:id` is 403 `not_editable` (moderators can still `PATCH`) |
+| `publicList: false` | `GET /api/v1/submissions/:type/:group` is 404 `not_public` and `republish` is a no-op, so approving never writes KV or purges |
+| `onApprove(env, row, now)` | runs before a moderator's approval is saved (`POST /api/admin/submissions/:id/state`). `ok: true` approves and stores the returned `external`; `ok: false` keeps the row pending, stores the failure's `external` (so moderators and the owner see why) and answers with the hook's status/code. The version is not bumped, so the moderator just retries. Bulk approval is refused (`bulk_not_allowed`) for such types |
+
+`submission_tab.external` (+ `external_at`) is a JSON object a type or the outside worker writes about a row **after approval**; the core only understands `outcome` (`{ status, url?, label? }`, https URLs only, bounded) and shows exactly that to the owner as `ContribSubmission.outcome`. Moderators see all of it in the admin card. Everything else in it is private to the type.
+
+Work that cannot run in a Worker (writing a Google Sheet needs credentials the Worker never holds; opening a pull request has its own hook) is done by a job in the wiki repo through bearer-`CLI_TOKEN` endpoints:
+
+- `GET /api/internal/submissions/:type?limit=` lists approved rows whose `external` is null, oldest approval first: `{ id, version, groupId, lang, payload, approvedAt, displayName }` (no IPs).
+- `POST /api/internal/submissions/:type/external` with `{ results: [{ id, external }] }` stores the results and answers `{ stored, skipped }`. A row that is not approved or already has an `external` is **skipped**, so a repeated run cannot overwrite a result or a moderator's decision. Each stored batch writes one audit row.
+- When a moderator `PATCH`es the **payload** of a row whose `external.outcome.status` is `conflict`, `external` is cleared: the row is listed again and the job retries with the corrected text.
+
+## Translation types (`lah-voice-tl`, `lah-bio-tl`)
+
+Contributors suggest English translations of voice lines (a batch per voice resource, at most 100 lines) and of one character bio. The payloads, roster formats and the wiki side (editor, intake Action, sheet columns) are in the wiki repo's `docs/CONTRIBUTOR_EDITING_PLAN.md`; what matters here:
+
+- Both are `accountOnly`, not `editable`, `publicList: false`, group `all`, `lang` `en` only (the validators take no language rule yet, so adding zh later is `langs` plus, if needed, a per-language roster check), no title/tags/explanation/demo. The suggestion UI is the wiki's editor, not the embed form: it signs in with `window.cmsEmbed.contrib` and posts to `/api/contrib/submissions/<type>/all`.
+- Payload text is **plain text** (no `<`, `>`, `{%`, `{{`, `{#`, control characters other than newline; at most 2000 characters, optional note at most 500), because it ends up in a Google Sheet and then in wiki HTML. `base` (the text the contributor saw) is kept as sent and is what the intake Action compares with the sheet to detect a conflict; a suggestion equal to `base` is rejected.
+- A roster (`rosterPath`, `/api/voice-roster.json` and `/api/bio-roster.json` next to the groups registry) lists what is translatable. The check is **soft** like the team roster: enforced only when the roster was fetched and is well-formed, so a missing roster never blocks submissions. The roster is read from KV, which the hourly cron fills, so a newly added type has no roster check for up to an hour.
+- No public blob: approval changes only D1. The intake Action pulls approved rows from the internal API, writes the sheet and posts `{ outcome: { status: 'synced' | 'conflict' | 'superseded', label? }, written, conflicts }` back. The contributor sees the outcome in "my submissions"; a `conflict` stays visible to moderators until one fixes the line.
+
+## Page edits and the GitHub App
+
+`lah-page-edit` lets a signed-in contributor propose a new body for one wiki page (`_charas/*.md`, `_events/*.md`, `_main_quests/*.md`, `guide/*.md`, `chara_quests.md`, `mobs.md`). Payload: `{ path, baseSha, after, summary }`; `after` is the whole new body without front matter, `baseSha` the git blob sha the contributor started from. It is account-only, not editable by its owner, never listed publicly, and has its own 128 KB body cap. Nothing touches GitHub until a moderator approves.
+
+On approval `onApprove` (`src/types/lah-page-edit/approve.ts`, using the generic client in `src/core/github-app.ts`) does, as the GitHub App:
+
+1. Read the file on `GITHUB_BASE_BRANCH` (default `master`). Same blob sha as `baseSha`, or an identical body (only the front matter changed): continue. A different body is a **conflict**: `409 base_conflict`, the row stays pending and `external.outcome` = `conflict` (the moderator edits `after` and sets the new `baseSha`; saving the payload clears the conflict). No automatic merge.
+2. Write the file as current front matter + `after` through the Git Data API (blob, tree, commit, ref) onto `contrib/<submission id>`, with the contributor as `Co-authored-by` (`contrib-<user id>@users.invalid`, a placeholder address that cannot receive mail), and open a PR labelled `community-edit`. The PR body contains no contributor-written text.
+3. Store `external = { outcome: { status: 'pr_open', url, label }, pr: { number, branch, url } }`. Re-approving after a pending round trip fast-forwards the same branch (a commit with parents `[branch head, master head]`, so the PR diff stays this one file) and reuses the open PR instead of opening a second one; if the PR was closed a new one is opened from the same branch.
+
+The GitHub App webhook (`POST /api/webhooks/github`, `X-Hub-Signature-256` HMAC with `GITHUB_WEBHOOK_SECRET`, constant-time) moves the outcome to `merged` / `closed` (and back to `pr_open` on reopen). It only acts on same-repository `contrib/<id>` branches whose PR number matches the stored `pr.number`, audits as actor `github`, and does not bump the submission `version`. Everything else gets a 200 and is ignored.
+
+Trust model:
+
+- The Worker **never merges** and never enables auto-merge; a maintainer reviews and merges every PR. It only adds `committer-approved` (the wiki's preview trigger) if `GITHUB_PREVIEW_LABEL` is set, which it is not by default.
+- The App has `contents: write`, `pull_requests: write`, `metadata: read` and **no `workflows` permission**, so GitHub rejects any push that touches `.github/workflows/`. It is installed on the wiki repo only. A ruleset on the base branch requires a PR plus the `build-and-test` and `contrib-guard` checks and does not list the App as a bypass actor, so a leaked key can open junk PRs and push `contrib/*` branches but not change `master`.
+- The Worker validates structure only (path whitelist, `baseSha`, size, no NUL, `after` must not start with a front matter fence, summary is one plain line). The Liquid/HTML guard is the wiki's `contrib-guard` CI job, which checks out the guard from the base branch; the Worker cannot import the wiki's code and a copy would drift.
+- The installation token (1 h) is cached in KV for 50 minutes: about one KV write per hour of activity. A 401 from GitHub drops the cached token. Error messages (shown to moderators) carry the HTTP status and GitHub's message, never a token or key.
+- Failures: unset configuration is `500 github_not_configured`, any GitHub error `502 github_error`; in both cases the submission stays pending and the moderator can retry.
 
 ## Localization
 
@@ -120,6 +170,6 @@ Decisions made with the owner; change them deliberately.
 - Moderators only screen for spam and abuse. They do **not** verify that a team works; the disclaimer on the list says so.
 - Spam is deleted 14 days after it was marked (moving it out of spam resets the clock); audit rows after 30 days.
 - Raw IPs are nulled after 90 days (`IP_RETENTION_DAYS`); `ip_key` and country stay. This is a privacy default the owner did not explicitly ask for, and one constant to change.
-- Public input limits: 32 KB body, 10 submissions per `ip_key` per type per day, 10 creates+edits per contributor per type per day (`SUBMISSIONS_PER_USER_PER_DAY`), 500 pending per type (protects moderators from floods), 3 submissions per minute per `ip_key` (`SUBMIT_LIMITER`).
+- Public input limits: 32 KB body (a type may raise it with `maxBodyBytes`), 10 submissions per `ip_key` per type per day, 10 creates+edits per contributor per type per day (`SUBMISSIONS_PER_USER_PER_DAY`), 500 pending per type (protects moderators from floods), 3 submissions per minute per `ip_key` (`SUBMIT_LIMITER`).
 - Explanations: Markdown with no HTML or images and at most 3 validated inline links (see EMBED.md "Links in explanations"). Headings are remapped so community text never competes with the wiki's own `h2`.
 - The Worker URL is `*.workers.dev` until the owner decides on a custom domain.

@@ -61,6 +61,17 @@ export function makeHarness(over: Partial<Deps> = {}, envOver: Record<string, un
 export const discordCalls: { url: string; body: { content: string; allowed_mentions: unknown } }[] = []
 export const discordStatus = { value: 204 }
 
+/** Extra JSON documents the fetch stub serves (url -> body), e.g. rosters; cleared by `resetState`. */
+export const extraFetch = new Map<string, unknown>()
+
+/** Inserts an enabled type config row (groups registry = GROUPS_URL, allowed origin = ORIGIN) and drops the type memo. */
+export async function seedType(id: string, over: { submitAuth?: 'anonymous' | 'account'; name?: string } = {}) {
+  await env.DB.prepare('INSERT INTO submission_type_tab (id,name,enabled,allowed_origins,plugin_url,groups_url,submit_auth,created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind(id, over.name ?? id, 1, JSON.stringify([ORIGIN]), `${ORIGIN}/assets/cms/${id}.js`, GROUPS_URL, over.submitAuth ?? 'anonymous', 1)
+    .run()
+  clearTypeCache()
+}
+
 /** Reset D1/KV state and module caches, then (re)seed the type row and stub outbound fetch. */
 export async function resetState(opts: { turnstile?: boolean; registry?: unknown } = {}) {
   clearGroupCaches()
@@ -78,6 +89,7 @@ export async function resetState(opts: { turnstile?: boolean; registry?: unknown
   const turnstileOk = opts.turnstile ?? true
   discordCalls.length = 0
   discordStatus.value = 204
+  extraFetch.clear()
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -88,6 +100,7 @@ export async function resetState(opts: { turnstile?: boolean; registry?: unknown
         return new Response(null, { status: discordStatus.value })
       }
       if (url === GROUPS_URL) return new Response(JSON.stringify(opts.registry ?? REGISTRY), { headers: { 'content-type': 'application/json' } })
+      if (extraFetch.has(url)) return new Response(JSON.stringify(extraFetch.get(url)), { headers: { 'content-type': 'application/json' } })
       if (url.startsWith('https://challenges.cloudflare.com/')) {
         return new Response(JSON.stringify({ success: turnstileOk }))
       }

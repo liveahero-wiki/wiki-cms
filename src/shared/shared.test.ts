@@ -114,7 +114,7 @@ describe('markdown policy: external links', () => {
 })
 
 describe('demo url', () => {
-  const opts = lahTeamFormation.demoUrl
+  const opts = lahTeamFormation.demoUrl!
   const ok = (s: string) => {
     const r = normalizeDemoUrl(s, opts)
     return r.ok ? r.value : `ERR:${r.error.code}`

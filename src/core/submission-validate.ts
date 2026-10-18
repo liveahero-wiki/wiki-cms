@@ -65,24 +65,31 @@ export function validateSubmission(
     }
   }
 
-  // explanation
-  const explanation = typeof input.explanation === 'string' ? input.explanation.replace(/\r\n?/g, '\n').trim() : ''
-  if (!explanation) {
-    errors.push({ path: 'explanation', code: 'explanation_required', message: 'An explanation is required.' })
-  } else if (explanation.length > def.explanation.maxLength) {
-    errors.push({
-      path: 'explanation',
-      code: 'explanation_too_long',
-      message: `The explanation must be at most ${def.explanation.maxLength} characters.`,
-      params: { max: def.explanation.maxLength },
-    })
-  } else {
-    errors.push(...checkExplanation(explanation))
+  // explanation (only for types that define one)
+  let explanation = ''
+  if (def.explanation) {
+    explanation = typeof input.explanation === 'string' ? input.explanation.replace(/\r\n?/g, '\n').trim() : ''
+    if (!explanation) {
+      errors.push({ path: 'explanation', code: 'explanation_required', message: 'An explanation is required.' })
+    } else if (explanation.length > def.explanation.maxLength) {
+      errors.push({
+        path: 'explanation',
+        code: 'explanation_too_long',
+        message: `The explanation must be at most ${def.explanation.maxLength} characters.`,
+        params: { max: def.explanation.maxLength },
+      })
+    } else {
+      errors.push(...checkExplanation(explanation))
+    }
   }
 
-  // demo url
-  const demo = normalizeDemoUrl(input.demoUrl, def.demoUrl)
-  if (!demo.ok) errors.push(demo.error)
+  // demo url (only for types that define one)
+  let demoUrl = ''
+  if (def.demoUrl) {
+    const demo = normalizeDemoUrl(input.demoUrl, def.demoUrl)
+    if (!demo.ok) errors.push(demo.error)
+    else demoUrl = demo.value
+  }
 
   // payload
   let payload: unknown
@@ -105,8 +112,8 @@ export function validateSubmission(
       title,
       lang,
       explanation,
-      explanationHtml: renderExplanation(explanation),
-      demoUrl: (demo as { ok: true; value: string }).value,
+      explanationHtml: explanation ? renderExplanation(explanation) : '',
+      demoUrl,
     },
   }
 }

@@ -29,6 +29,13 @@
       "when": 1792281065162,
       "tag": "0003_outstanding_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792291129928,
+      "tag": "0004_daily_menace",
+      "breakpoints": true
     }
   ]
 }

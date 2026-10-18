@@ -74,8 +74,8 @@ Production origins must be exact (scheme + host, no trailing slash). Add a secon
 
 ### Content-Security-Policy of the admin
 
-`public/_headers` lists `https://liveahero-wiki.github.io` as the only external script/connect origin, because the admin loads the game
-plugin from the wiki. If you add a type whose plugin is hosted elsewhere, add that origin to `script-src` and `connect-src` in `public/_headers`
+`public/_headers` lists `https://liveahero-wiki.github.io` as the only external script origin (the admin loads the game
+plugin from the wiki) and, for `connect-src`, also `https://api.github.com` (the page-edit plugin fetches the base file's blob to draw the diff). If you add a type whose plugin is hosted elsewhere, add that origin to `script-src` and `connect-src` in `public/_headers`
 (for local development against `http://localhost:8080` use the Vite dev server for the admin, or temporarily add the origin).
 
 ### Team Creator rollout (one-off)
@@ -87,6 +87,68 @@ The move from per-page groups to the single `all` group, with its four phases an
 3. Data migration, game-specific so it is **not** in `migrations/`: `pnpm exec wrangler d1 execute wiki_cms_db --local --file scripts/data/2026-10-team-creator.sql` first (try it on `node scripts/dev-seed.mjs --reset` data), then the same with `--remote`. It moves every `lah-team-formation` row to `all`, maps `rng` to `successRate` (`none`/`few` to `high`, `many` to `medium`, `impractical` to `low`), sets `teamType = manual`, turns the three SSS simulator group ids into `payload.target`, bumps `version`/`updated_at` (open edit dialogs get a conflict) and writes one `data.migrate` audit row. It is idempotent: **run it again after the wiki deploy** to sweep rows that arrived in an old group meanwhile.
 4. `CLI_TOKEN=… node cli/cms.ts republish --type lah-team-formation --url <PUBLIC_URL>`, then `republish --all`.
 5. Moderators add names to the legacy rows (admin: "Untitled only").
+
+### Translation types (voice lines and bios)
+
+The two translation types ([ARCHITECTURE.md](ARCHITECTURE.md#translation-types-lah-voice-tl-lah-bio-tl)) are registered like any type. Deploy order: Worker with the migration first, then these commands, then the wiki (rosters, editor, admin plugins), then the wiki's Action secrets (`CLI_TOKEN`, the Worker URL). `type add` has no `--submit-auth` flag, so set it afterwards (the code already forces account-only, this keeps D1 and the admin consistent). Drop `--remote` for a local database; locally use `http://localhost:8080` URLs like above.
+
+```bash
+for t in lah-voice-tl lah-bio-tl; do
+  node cli/cms.ts type add $t --remote \
+    --name "LAH $t" \
+    --origins https://liveahero-wiki.github.io \
+    --plugin-url https://liveahero-wiki.github.io/assets/cms/$t.js \
+    --groups-url https://liveahero-wiki.github.io/api/cms-groups.json
+  node cli/cms.ts type update $t --remote --submit-auth account
+  node cli/cms.ts mod grant <moderatorUserId> --types $t --remote
+done
+```
+
+The groups registry is the same one the team type uses (group `all` already exists there). The roster is fetched by the hourly cron, so the translatable-lines check starts up to an hour after the type is added (submissions are accepted meanwhile). The intake Action reads approved rows with `GET /api/internal/submissions/<type>` and reports back with `POST /api/internal/submissions/<type>/external`, both with `Authorization: Bearer $CLI_TOKEN`.
+
+### Page edits (`lah-page-edit`) and the GitHub App
+
+Approving a page edit opens a pull request on the wiki repo through a GitHub App ([ARCHITECTURE.md](ARCHITECTURE.md#page-edits-and-the-github-app) has the trust model). Nothing here is deployed or run by the code; these are human steps, in this order after the Worker with the new code is live.
+
+**1. Register the type** (add `--remote` for production; locally use `http://localhost:8080` URLs). `type add` has no `--submit-auth` flag, so set it afterwards (the code already forces account-only; this keeps D1 and the admin consistent):
+
+```bash
+node cli/cms.ts type add lah-page-edit --remote \
+  --name "LAH page edit" \
+  --origins https://liveahero-wiki.github.io \
+  --plugin-url https://liveahero-wiki.github.io/assets/cms/lah-page-edit.js \
+  --groups-url https://liveahero-wiki.github.io/api/cms-groups.json
+node cli/cms.ts type update lah-page-edit --remote --submit-auth account
+node cli/cms.ts mod grant <moderatorUserId> --types lah-page-edit --remote
+```
+
+The groups registry is the wiki's existing one (group `all`; this type ignores its `options` and has no roster). The admin imports the plugin (`assets/cms/lah-page-edit.js`, which draws the diff) from the wiki and fetches the base file's blob from `https://api.github.com`, which is why `public/_headers` allows that host in `connect-src`.
+
+**2. Create the GitHub App** (GitHub > Settings > Developer settings > GitHub Apps, owned by the user or org that owns the wiki repo):
+
+- Repository permissions: **Contents: Read & write**, **Pull requests: Read & write**, **Metadata: Read-only**. Nothing else; in particular **no Workflows** permission, so GitHub rejects any push that touches `.github/workflows/`.
+- Subscribe to the **Pull request** event. Webhook URL `<PUBLIC_URL>/api/webhooks/github`, content type `application/json`, and a random webhook secret (`openssl rand -base64 32`).
+- "Where can this app be installed": only on this account. Install it **only** on `liveahero-wiki/liveahero-wiki.github.io` (not "all repositories").
+- Generate a private key. GitHub downloads a PKCS#1 PEM (`BEGIN RSA PRIVATE KEY`), which WebCrypto cannot import; convert it: `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem`. Note the App ID and the installation id (the number at the end of the installation's settings URL).
+
+**3. Worker configuration.** `GITHUB_REPO` (`liveahero-wiki/liveahero-wiki.github.io`) and `GITHUB_BASE_BRANCH` (`master`) are public vars in `wrangler.jsonc`; `GITHUB_PREVIEW_LABEL` is unset on purpose (set it to the wiki's preview label only if previews should start automatically; the guard has then already limited the content to text and safe Liquid). Secrets, with `wrangler secret put` (never into `.dev.vars`/`.prod.vars` copies, docs or logs):
+
+```bash
+pnpm exec wrangler secret put GITHUB_APP_ID
+pnpm exec wrangler secret put GITHUB_APP_INSTALLATION_ID
+pnpm exec wrangler secret put GITHUB_WEBHOOK_SECRET
+pnpm exec wrangler secret put GITHUB_APP_PRIVATE_KEY < app-pkcs8.pem   # PKCS#8 PEM; pasted with literal \n escapes also works
+```
+
+Locally these go into `.dev.vars` (gitignored). Until they are set, approving a page edit answers `500 github_not_configured` and the row stays pending.
+
+**4. Ruleset on the base branch** (repository settings > Rules > Rulesets), before the first approval:
+
+- Target `master`: require a pull request and the status checks `build-and-test` and `contrib-guard` (the wiki's CI; `contrib-guard` runs on PRs from `contrib/*`). **Do not put the App on the bypass list**; the maintainers merge by hand and nothing merges automatically.
+- Optional second ruleset: restrict branch creation/updates by the App to `contrib/**`.
+- Create the `community-edit` label (the Worker adds it to every PR; GitHub also creates it on first use).
+
+**5. Check:** the webhook's "Recent deliveries" shows 200 for `ping`; approve a test edit in the admin and watch the PR appear; merge or close it and the contributor's "my submissions" shows `merged` / `closed`.
 
 ## 3. Operations
 

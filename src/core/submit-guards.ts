@@ -12,12 +12,12 @@ import type { ResolvedType } from './types-runtime.ts'
 
 export type Body = Record<string, unknown>
 
-/** Reads a JSON object body under the size cap. */
-export async function readBody(c: Ctx): Promise<{ ok: true; body: Body } | { ok: false; res: Response }> {
+/** Reads a JSON object body under the size cap (`max` defaults to MAX_BODY_BYTES; a type may raise it with `maxBodyBytes`). */
+export async function readBody(c: Ctx, max = MAX_BODY_BYTES): Promise<{ ok: true; body: Body } | { ok: false; res: Response }> {
   const len = Number(c.req.header('Content-Length') ?? '0')
-  if (len > MAX_BODY_BYTES) return { ok: false, res: apiError(c, 413, 'too_large', 'Request body too large.') }
+  if (len > max) return { ok: false, res: apiError(c, 413, 'too_large', 'Request body too large.') }
   const raw = await c.req.text()
-  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) return { ok: false, res: apiError(c, 413, 'too_large', 'Request body too large.') }
+  if (new TextEncoder().encode(raw).length > max) return { ok: false, res: apiError(c, 413, 'too_large', 'Request body too large.') }
   try {
     const parsed = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('not an object')
@@ -102,3 +102,8 @@ export async function countIpRecent(c: Ctx, key: string, typeId: string, now: nu
 }
 
 export const countryOf = (c: Ctx): string | null => (c.req.raw as { cf?: { country?: string } }).cf?.country ?? null
+
+/** Text sent to the optional AI moderation, or '' when the type has nothing worth classifying (then no call is made). */
+export function moderationInput(rt: ResolvedType, val: { title: string; explanation: string; demoUrl: string; payload: unknown }): string {
+  return [val.title, val.explanation, val.demoUrl, rt.def.moderationText?.(val.payload)].filter(Boolean).join('\n')
+}

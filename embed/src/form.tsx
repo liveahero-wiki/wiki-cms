@@ -64,7 +64,7 @@ function loadTurnstile(): Promise<TurnstileApi> {
 // ---- helpers ----
 
 const stable = (v: unknown) => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x))
-const template = (cfg: TypeConfig, lang: Lang) => cfg.explanation.template[lang] ?? cfg.explanation.template.en
+const template = (cfg: TypeConfig, lang: Lang) => cfg.explanation!.template[lang] ?? cfg.explanation!.template.en
 /** Tags the form preselects (a type's `default`; the server never fills them in). */
 const tagDefaults = (cfg: TypeConfig): Record<string, string> =>
   Object.fromEntries(cfg.tags.flatMap((d) => (d.default !== undefined && d.options.some((o) => o.value === d.default) ? [[d.key, d.default]] : [])))
@@ -117,11 +117,11 @@ function validateLocal(cfg: TypeConfig, v: Values): FieldError[] {
   }
   const expl = v.explanation.replace(/\r\n?/g, '\n').trim()
   if (!expl) errors.push({ path: 'explanation', ...en('explanation_required') })
-  else if (expl.length > cfg.explanation.maxLength) errors.push({ path: 'explanation', ...en('explanation_too_long', { max: cfg.explanation.maxLength }) })
+  else if (expl.length > cfg.explanation!.maxLength) errors.push({ path: 'explanation', ...en('explanation_too_long', { max: cfg.explanation!.maxLength }) })
   else errors.push(...checkExplanation(expl))
   const demo = v.demoUrl.trim()
   if (!demo) {
-    if (cfg.demoUrl.required) errors.push({ path: 'demoUrl', ...en('demo_required') })
+    if (cfg.demoUrl!.required) errors.push({ path: 'demoUrl', ...en('demo_required') })
   } else if (demo.length > 300) errors.push({ path: 'demoUrl', ...en('demo_too_long') })
   else {
     let u: URL | null = null
@@ -133,7 +133,7 @@ function validateLocal(cfg: TypeConfig, v: Values): FieldError[] {
     if (u) {
       if (u.protocol !== 'https:') errors.push({ path: 'demoUrl', ...en('demo_https') })
       else if (u.username || u.password || u.port) errors.push({ path: 'demoUrl', ...en('demo_invalid') })
-      else if (!cfg.demoUrl.allowedHosts.includes(u.hostname.toLowerCase())) errors.push({ path: 'demoUrl', ...en('demo_host') })
+      else if (!cfg.demoUrl!.allowedHosts.includes(u.hostname.toLowerCase())) errors.push({ path: 'demoUrl', ...en('demo_host') })
     }
   }
   return errors
@@ -326,7 +326,7 @@ function FormBody({ cfg, plugin, args, session, close, setClose }: {
   }, [liveExpl, errors])
   const previewHtml = useMemo(() => (tab === 'preview' ? renderExplanation(v.explanation) : ''), [tab, v.explanation])
   const explLen = v.explanation.trim().length
-  const max = cfg.explanation.maxLength
+  const max = cfg.explanation!.maxLength
 
   const onLang = (lang: Lang) => {
     clearErrors((p) => p === 'lang')
@@ -637,7 +637,7 @@ function FormBody({ cfg, plugin, args, session, close, setClose }: {
 
         <div class="cms-field">
           <label class="cms-label" for="cms-demo">
-            {t(L, 'form.demo')} {cfg.demoUrl.required && <Req lang={L} />}
+            {t(L, 'form.demo')} {cfg.demoUrl!.required && <Req lang={L} />}
           </label>
           <input
             id="cms-demo"

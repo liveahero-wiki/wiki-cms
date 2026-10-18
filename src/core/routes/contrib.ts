@@ -9,10 +9,11 @@ import { allowedContribOrigins, contribCors, mintContribToken, normalizeDisplayN
 import { getDb } from '../db/client.ts'
 import { account_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, submission_revision_tab, submission_tab, user_tab } from '../db/schema.ts'
 import { notifyNewSubmission } from '../discord-notify.ts'
+import { outcomeOf } from '../external.ts'
 import { getGroup, getRoster } from '../groups.ts'
 import { apiError, type AppEnv, type Ctx } from '../http.ts'
 import { getProvider, PROVIDERS } from '../providers.ts'
-import { checkClient, checkHuman, countIpRecent, countPending, countUserRecent, countryOf, isHoneypot, readBody } from '../submit-guards.ts'
+import { checkClient, checkHuman, countIpRecent, countPending, countUserRecent, countryOf, isHoneypot, moderationInput, readBody } from '../submit-guards.ts'
 import { validateSubmission } from '../submission-validate.ts'
 import { getType, type ResolvedType } from '../types-runtime.ts'
 
@@ -177,6 +178,7 @@ function toContribSubmission(r: SubmissionRow, rev: RevisionRow | undefined): Co
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     revision: rev && (rev.state === 'pending' || rev.state === 'rejected') ? toContribRevision(rev) : null,
+    outcome: outcomeOf(r.external),
   }
 }
 
@@ -206,8 +208,8 @@ function typeOriginOk(c: Ctx, allowed: string[]): boolean {
 /** Optional AI classification of `version` of a row (never blocks the request). */
 function moderate(c: Ctx, rt: ResolvedType, id: string, val: { title: string; explanation: string; demoUrl: string; payload: unknown }, now: number, version = 1) {
   if (!c.env.AI || c.env.AI_MODERATION === 'off') return
-  const text = [val.title, val.explanation, val.demoUrl, rt.def.moderationText?.(val.payload)].filter(Boolean).join('\n')
-  c.executionCtx.waitUntil(aiModerate(c.env, id, text, now, version))
+  const text = moderationInput(rt, val)
+  if (text) c.executionCtx.waitUntil(aiModerate(c.env, id, text, now, version))
 }
 
 contribRoutes.post('/submissions/:type/:group', ...guard, async (c) => {
@@ -219,7 +221,7 @@ contribRoutes.post('/submissions/:type/:group', ...guard, async (c) => {
   if (!rt) return apiError(c, 404, 'unknown_type', 'Unknown submission type.')
   if (!typeOriginOk(c, rt.allowedOrigins)) return apiError(c, 403, 'bad_origin', 'Origin not allowed.')
 
-  const read = await readBody(c)
+  const read = await readBody(c, rt.def.maxBodyBytes)
   if (!read.ok) return read.res
   const body = read.body
   if (isHoneypot(body)) return c.json({ id: crypto.randomUUID(), state: 'pending' }, 202)
@@ -278,9 +280,9 @@ contribRoutes.put('/submissions/:id', ...guard, async (c) => {
   const rt = await getType(c.env, row.type)
   if (!rt) return apiError(c, 404, 'unknown_type', 'Unknown submission type.')
   if (!typeOriginOk(c, rt.allowedOrigins)) return apiError(c, 403, 'bad_origin', 'Origin not allowed.')
-  if (row.state === 'spam') return apiError(c, 403, 'not_editable', 'This submission can no longer be edited.')
+  if (row.state === 'spam' || rt.def.editable === false) return apiError(c, 403, 'not_editable', 'This submission can no longer be edited.')
 
-  const read = await readBody(c)
+  const read = await readBody(c, rt.def.maxBodyBytes)
   if (!read.ok) return read.res
   const body = read.body
   if (isHoneypot(body)) return c.json({ id: row.id, state: 'pending', version: row.version }, 202)

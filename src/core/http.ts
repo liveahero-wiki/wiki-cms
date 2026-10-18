@@ -10,7 +10,7 @@ export interface Deps {
 export type AppEnv = { Bindings: Env; Variables: { deps: Deps } }
 export type Ctx = Context<AppEnv>
 
-export function apiError(c: Ctx, status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500, code: string, message: string, fields?: FieldError[]) {
+export function apiError(c: Ctx, status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500 | 502, code: string, message: string, fields?: FieldError[]) {
   return c.json({ error: { code, message, ...(fields ? { fields } : {}) } }, status)
 }
 
