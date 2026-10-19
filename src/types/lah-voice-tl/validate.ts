@@ -1,12 +1,12 @@
 import type { FieldError, GroupInfo, ValidateContext, ValidateResult } from '../../core/types-registry.ts'
-import { KEY_RE, err, isObj, readBase, readNote, readOptionalText, readText, sameAsBase } from '../tl-text.ts'
+import { KEY_RE, err, hasJp, isObj, langOpen, readBase, readNote, readOptionalText, readText, sameAsBase } from '../tl-text.ts'
 
 export interface VoiceLine {
   /** `voice_<resourceName>_<part>` */
   key: string
-  /** The EN text the contributor saw (empty when there was none); used to detect conflicts at sync time. */
+  /** The text the contributor saw, in the submission's language (empty when there was none); used to detect conflicts at sync time. */
   base: string
-  /** The EN suggestion; empty only when `jp` is given. */
+  /** The suggestion in the submission's language; empty only when `jp` is given. */
   text: string
   /** The Japanese transcription of a line the game (and the sheet) has no Japanese text for. */
   jp?: string
@@ -25,11 +25,14 @@ function rosterResources(roster: unknown): Record<string, unknown> | null {
 }
 
 /**
- * `group` is unused (the type has one group, `all`) and the language is checked by the core against `def.langs`;
- * a language-aware rule (for example per-language translatability) would be added here via `ctx`.
+ * `group` is unused (the type has one group, `all`) and the language is checked by the core against `def.langs`.
+ * `ctx.lang` makes the roster check per language: `text`/`base` are in the submission's language (en, zh-Hans or zh-Hant),
+ * a non-English suggestion needs the roster entry to have a Japanese text and cannot carry `jp`.
  */
 export function validateVoicePayload(input: unknown, _group?: GroupInfo, ctx: ValidateContext = {}): ValidateResult<VoicePayload> {
   const errors: FieldError[] = []
+  const lang = ctx.lang ?? 'en'
+  const english = lang === 'en'
   if (!isObj(input)) return { ok: false, errors: [err('payload', 'payload_invalid', 'The suggestion is malformed.')] }
 
   const resourceName = input.resourceName
@@ -69,14 +72,21 @@ export function validateVoicePayload(input: unknown, _group?: GroupInfo, ctx: Va
       seen.add(key)
       if (known && !Object.hasOwn(known, key)) {
         errors.push(err(`${p}.key`, 'line_not_translatable', 'This line cannot be translated.'))
+      } else if (known) {
+        // Per language: the line must still be open in the submission's language (the game may ship its own text).
+        const entry = known[key]
+        if (!langOpen(entry, lang)) errors.push(err(`${p}.key`, 'line_not_translatable', 'This line cannot be translated into this language.'))
+        else if (!english && !hasJp(entry)) errors.push(err(`${p}.key`, 'jp_required', 'This line has no Japanese text to translate from yet.'))
       }
     }
     const base = readBase(errors, `${p}.base`, raw.base)
-    // A line the game has no Japanese text for may carry the transcription; then the translation is optional.
+    // A line the game has no Japanese text for may carry the transcription (English submissions only); then the translation is optional.
     const jp = readOptionalText(errors, `${p}.jp`, raw.jp)
-    if (jp !== undefined && keyOk && known && Object.hasOwn(known, key as string)) {
+    if (jp !== undefined && !english) {
+      errors.push(err(`${p}.jp`, 'jp_not_allowed', 'The Japanese transcription is submitted with an English suggestion.'))
+    } else if (jp !== undefined && keyOk && known && Object.hasOwn(known, key as string)) {
       const entry = known[key as string]
-      if (isObj(entry) && typeof entry.jp === 'string' && entry.jp.trim()) {
+      if (hasJp(entry)) {
         errors.push(err(`${p}.jp`, 'jp_not_allowed', 'This line already has Japanese text.'))
       }
     }

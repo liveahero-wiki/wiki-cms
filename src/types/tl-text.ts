@@ -16,6 +16,21 @@ export const err = (path: string, code: string, message: string, params?: FieldE
 
 export const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
+/** The roster's short code of a submission language (the `langs` of a roster entry list these). */
+export const rosterLang = (lang: string | undefined): 'en' | 'hans' | 'hant' => (lang === 'zh-Hans' ? 'hans' : lang === 'zh-Hant' ? 'hant' : 'en')
+
+/**
+ * Whether a roster entry still offers `lang`. An entry without `langs` (an older roster) offers every language,
+ * and so does one that is not an object (the existence check is separate).
+ */
+export function langOpen(entry: unknown, lang: string | undefined): boolean {
+  if (!isObj(entry) || !Array.isArray(entry.langs)) return true
+  return entry.langs.includes(rosterLang(lang))
+}
+
+/** A non-English suggestion is translated from the Japanese text, so the roster entry needs one. */
+export const hasJp = (entry: unknown): boolean => isObj(entry) && typeof entry.jp === 'string' && entry.jp.trim() !== ''
+
 /** Line breaks as `\n` (CRLF and lone CR). */
 export const normalizeNewlines = (s: string): string => s.replace(/\r\n?/g, '\n')
 

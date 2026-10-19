@@ -98,7 +98,7 @@ export function validateSubmission(
   } else if (JSON.stringify(input.payload).length > def.maxPayloadBytes) {
     errors.push({ path: 'payload', code: 'payload_too_large', message: 'The payload is too large.' })
   } else {
-    const r = def.validatePayload(input.payload, group, ctx)
+    const r = def.validatePayload(input.payload, group, { ...ctx, lang })
     if (r.ok) payload = r.value
     else errors.push(...r.errors)
   }

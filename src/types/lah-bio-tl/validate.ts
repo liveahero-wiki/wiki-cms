@@ -1,10 +1,10 @@
 import type { FieldError, GroupInfo, ValidateContext, ValidateResult } from '../../core/types-registry.ts'
-import { KEY_RE, err, isObj, readBase, readNote, readText, sameAsBase } from '../tl-text.ts'
+import { KEY_RE, err, hasJp, isObj, langOpen, readBase, readNote, readText, sameAsBase } from '../tl-text.ts'
 
 export interface BioPayload {
   /** The game's bio key, e.g. `DETAIL_CEPH_H01`. */
   key: string
-  /** The EN text the contributor saw (empty when there was none); used to detect conflicts at sync time. */
+  /** The text the contributor saw, in the submission's language (empty when there was none); used to detect conflicts at sync time. */
   base: string
   text: string
   note?: string
@@ -15,7 +15,7 @@ function rosterBios(roster: unknown): Record<string, unknown> | null {
   return isObj(roster) && isObj(roster.bios) ? roster.bios : null
 }
 
-/** One bio per submission. Same text rules as the voice type; `group` is unused and the language is checked by the core. */
+/** One bio per submission. Same text rules as the voice type; `group` is unused and the language is checked by the core (`ctx.lang` drives the per-language roster check). */
 export function validateBioPayload(input: unknown, _group?: GroupInfo, ctx: ValidateContext = {}): ValidateResult<BioPayload> {
   const errors: FieldError[] = []
   if (!isObj(input)) return { ok: false, errors: [err('payload', 'payload_invalid', 'The suggestion is malformed.')] }
@@ -26,6 +26,12 @@ export function validateBioPayload(input: unknown, _group?: GroupInfo, ctx: Vali
   else {
     const bios = rosterBios(ctx.roster)
     if (bios && !Object.hasOwn(bios, key)) errors.push(err('payload.key', 'bio_not_translatable', 'This bio cannot be translated.'))
+    else if (bios) {
+      // Per language: still open in the submission's language, and a non-English suggestion needs the Japanese text.
+      const entry = bios[key]
+      if (!langOpen(entry, ctx.lang)) errors.push(err('payload.key', 'bio_not_translatable', 'This bio cannot be translated into this language.'))
+      else if (ctx.lang && ctx.lang !== 'en' && !hasJp(entry)) errors.push(err('payload.key', 'jp_required', 'This bio has no Japanese text to translate from.'))
+    }
   }
 
   const base = readBase(errors, 'payload.base', input.base)

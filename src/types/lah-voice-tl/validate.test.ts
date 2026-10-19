@@ -6,7 +6,7 @@ const line = (part: string, over: Record<string, unknown> = {}) => ({ key: `voic
 const payload = (over: Record<string, unknown> = {}) => ({ resourceName: 'ryekie', lines: [line('action')], ...over })
 const roster = { version: '1', resources: { ryekie: { voice_ryekie_action: { jp: 'x' }, voice_ryekie_win: { jp: 'y' } } } }
 
-const run = (input: unknown, r?: unknown) => validateVoicePayload(input, undefined, { roster: r })
+const run = (input: unknown, r?: unknown, lang?: string) => validateVoicePayload(input, undefined, { roster: r, lang })
 const errs = (r: ReturnType<typeof run>) => (r.ok ? [] : r.errors.map((e) => `${e.path}:${e.code}`))
 
 describe('lah-voice-tl payload', () => {
@@ -129,6 +129,38 @@ describe('lah-voice-tl payload', () => {
   })
 })
 
+describe('lah-voice-tl per-language roster check', () => {
+  const open = { resources: { ryekie: { voice_ryekie_action: { jp: 'x', langs: ['en', 'hans', 'hant'] }, voice_ryekie_win: { jp: 'y', langs: ['en'] }, voice_ryekie_lose: { jp: '', langs: ['en', 'hans'] } } } }
+
+  it('accepts a zh suggestion for a line that is open in that language', () => {
+    expect(run(payload({ lines: [line('action', { base: '', text: '出发' })] }), open, 'zh-Hans').ok).toBe(true)
+    expect(run(payload({ lines: [line('action', { base: '', text: '出發' })] }), open, 'zh-Hant').ok).toBe(true)
+  })
+  it('rejects a line the game already translated into that language', () => {
+    expect(errs(run(payload({ lines: [line('win', { base: '', text: '赢了' })] }), open, 'zh-Hans'))).toEqual(['payload.lines.0.key:line_not_translatable'])
+    expect(run(payload({ lines: [line('win')] }), open, 'en').ok).toBe(true)
+  })
+  it('rejects English for a line the game already has English text for', () => {
+    const roster = { resources: { ryekie: { voice_ryekie_action: { jp: 'x', langs: ['hans'] } } } }
+    expect(errs(run(payload(), roster, 'en'))).toEqual(['payload.lines.0.key:line_not_translatable'])
+  })
+  it('needs Japanese text to translate from', () => {
+    expect(errs(run(payload({ lines: [line('lose', { base: '', text: '输了' })] }), open, 'zh-Hans'))).toEqual(['payload.lines.0.key:jp_required'])
+  })
+  it('the jp transcription belongs to English submissions only', () => {
+    expect(errs(run(payload({ lines: [line('lose', { base: '', text: '输了', jp: '負けた' })] }), open, 'zh-Hans'))).toContain('payload.lines.0.jp:jp_not_allowed')
+    expect(run(payload({ lines: [line('lose', { base: '', text: '', jp: '負けた' })] }), open, 'en').ok).toBe(true)
+  })
+  it('an entry without langs (an older roster) offers every language; without a roster nothing is checked', () => {
+    expect(run(payload({ lines: [line('action', { base: '', text: '出发' })] }), roster, 'zh-Hant').ok).toBe(true)
+    expect(run(payload({ lines: [line('anything', { base: '', text: '出发' })] }), undefined, 'zh-Hant').ok).toBe(true)
+  })
+  it('the same-as-base and plain-text rules apply to zh text too', () => {
+    expect(errs(run(payload({ lines: [line('action', { base: '出发', text: '出发' })] }), open, 'zh-Hans'))).toEqual(['payload.lines.0.text:text_same_as_base'])
+    expect(errs(run(payload({ lines: [line('action', { base: '', text: '出<发' })] }), open, 'zh-Hans'))).toEqual(['payload.lines.0.text:text_invalid'])
+  })
+})
+
 describe('lah-voice-tl roster (soft check)', () => {
   it('accepts translatable keys of a known resource', () => {
     expect(run(payload({ lines: [line('action'), line('win')] }), roster).ok).toBe(true)
@@ -155,9 +187,9 @@ describe('lah-voice-tl roster (soft check)', () => {
 })
 
 describe('lah-voice-tl def', () => {
-  it('is account-only, not editable, not public and English-only', () => {
+  it('is account-only, not editable, not public and offers English and both Chinese scripts', () => {
     expect(lahVoiceTl).toMatchObject({ id: 'lah-voice-tl', accountOnly: true, editable: false, publicList: false, tags: [], rosterPath: '/api/voice-roster.json' })
-    expect(lahVoiceTl.langs).toEqual([{ value: 'en', label: 'English' }])
+    expect(lahVoiceTl.langs.map((l) => l.value)).toEqual(['en', 'zh-Hans', 'zh-Hant'])
     expect(lahVoiceTl.title).toBeUndefined()
     expect(lahVoiceTl.explanation).toBeUndefined()
     expect(lahVoiceTl.demoUrl).toBeUndefined()

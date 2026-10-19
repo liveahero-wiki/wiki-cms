@@ -129,7 +129,7 @@ describe('lah-voice-tl', () => {
     expect((await h.fetch(`/api/v1/submissions/${VOICE}/all`)).status).toBe(404)
     const res = await h.fetch(`/api/v1/types/${VOICE}`)
     expect(res.status).toBe(200)
-    expect(await json(res)).toMatchObject({ type: VOICE, explanation: null, demoUrl: null, title: null, tags: [], submitAuth: 'account', langs: [{ value: 'en', label: 'English' }] })
+    expect(await json(res)).toMatchObject({ type: VOICE, explanation: null, demoUrl: null, title: null, tags: [], submitAuth: 'account', langs: [{ value: 'en', label: 'English' }, { value: 'zh-Hans', label: '简体中文' }, { value: 'zh-Hant', label: '繁體中文' }] })
   })
 
   it('accepts a body over 32 KB (up to the type cap) and refuses one over its cap', async () => {
@@ -143,6 +143,33 @@ describe('lah-voice-tl', () => {
     const huge = await submit(token, VOICE, voice({ note: 'n'.repeat(450 * 1024) }))
     expect(huge.status).toBe(413)
     expect((await json(huge)).error.code).toBe('too_large')
+  })
+
+  it('accepts a Chinese suggestion (stored with its lang) and applies the per-language roster rules', async () => {
+    const token = await contribLogin('c1')
+    extraFetch.set(new URL('/api/voice-roster.json', GROUPS_URL).toString(), {
+      version: '3',
+      resources: { ryekie: { voice_ryekie_action: { jp: 'よし', langs: ['en', 'hans', 'hant'] }, voice_ryekie_win: { jp: '勝った', langs: ['en'] }, voice_ryekie_lose: { jp: '', langs: ['en', 'hans'] } } },
+    })
+    await loadRosters()
+    const res = await submit(token, VOICE, voice({ lines: [line('action', { base: '', text: '出发' })] }), { lang: 'zh-Hans' })
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(202)
+    const { id } = await json(res)
+    const [row] = await rows(`id='${id}'`)
+    expect(row).toMatchObject({ type: VOICE, lang: 'zh-Hans' })
+    expect(JSON.parse(row!.payload as string)).toEqual({ resourceName: 'ryekie', lines: [{ key: 'voice_ryekie_action', base: '', text: '出发' }] })
+
+    const codes = async (lines: unknown[], lang: string) =>
+      (await json(await submit(token, VOICE, voice({ lines }), { lang }))).error.fields.map((f: { path: string; code: string }) => `${f.path}:${f.code}`)
+    expect(await codes([line('win', { base: '', text: '赢了' })], 'zh-Hant')).toEqual(['payload.lines.0.key:line_not_translatable'])
+    expect(await codes([line('lose', { base: '', text: '输了' })], 'zh-Hans')).toEqual(['payload.lines.0.key:jp_required'])
+  })
+
+  it('refuses a language the type does not offer', async () => {
+    const token = await contribLogin('c1')
+    const res = await submit(token, VOICE, voice(), { lang: 'ja' })
+    expect(res.status).toBe(400)
+    expect((await json(res)).error.fields.map((f: { code: string }) => f.code)).toContain('lang_invalid')
   })
 
   it('more than 100 lines is refused', async () => {
@@ -189,6 +216,20 @@ describe('lah-bio-tl', () => {
     expect(put.status).toBe(403)
     expect((await h.fetch(`/api/v1/submissions/${BIO}/all`)).status).toBe(404)
     expect(await json(await h.fetch(`/api/v1/types/${BIO}`))).toMatchObject({ explanation: null, demoUrl: null, submitAuth: 'account' })
+  })
+})
+
+describe('lah-bio-tl in Chinese', () => {
+  it('a contributor submits a zh-Hant bio; a bio the game translated is refused', async () => {
+    const token = await contribLogin('c1')
+    extraFetch.set(new URL('/api/bio-roster.json', GROUPS_URL).toString(), { version: '2', bios: { DETAIL_CEPH_H01: { jp: 'x', langs: ['en', 'hans', 'hant'] }, bio_s01: { jp: 'y', langs: ['en'] } } })
+    await loadRosters()
+    const res = await submit(token, BIO, bio({ text: '一段簡介' }), { lang: 'zh-Hant' })
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(202)
+    const [row] = await rows(`id='${(await json(res)).id}'`)
+    expect(row).toMatchObject({ type: BIO, lang: 'zh-Hant' })
+    const refused = await submit(token, BIO, bio({ key: 'bio_s01', text: '简介' }), { lang: 'zh-Hans' })
+    expect((await json(refused)).error.fields.map((f: { code: string }) => f.code)).toEqual(['bio_not_translatable'])
   })
 })
 

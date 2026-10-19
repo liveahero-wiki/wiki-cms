@@ -5,7 +5,7 @@ import { validateBioPayload } from './validate.ts'
 const payload = (over: Record<string, unknown> = {}) => ({ key: 'DETAIL_CEPH_H01', base: 'Old text', text: 'New text', ...over })
 const roster = { version: '1', bios: { DETAIL_CEPH_H01: { jp: 'x' }, bio_s01: { jp: 'y', en: 'z' } } }
 
-const run = (input: unknown, r?: unknown) => validateBioPayload(input, undefined, { roster: r })
+const run = (input: unknown, r?: unknown, lang?: string) => validateBioPayload(input, undefined, { roster: r, lang })
 const errs = (r: ReturnType<typeof run>) => (r.ok ? [] : r.errors.map((e) => `${e.path}:${e.code}`))
 
 describe('lah-bio-tl payload', () => {
@@ -59,9 +59,9 @@ describe('lah-bio-tl roster (soft check)', () => {
 })
 
 describe('lah-bio-tl def', () => {
-  it('is account-only, not editable, not public and English-only', () => {
+  it('is account-only, not editable, not public and offers English and both Chinese scripts', () => {
     expect(lahBioTl).toMatchObject({ id: 'lah-bio-tl', accountOnly: true, editable: false, publicList: false, tags: [], rosterPath: '/api/bio-roster.json' })
-    expect(lahBioTl.langs).toEqual([{ value: 'en', label: 'English' }])
+    expect(lahBioTl.langs.map((l) => l.value)).toEqual(['en', 'zh-Hans', 'zh-Hant'])
     expect(lahBioTl.title).toBeUndefined()
     expect(lahBioTl.explanation).toBeUndefined()
     expect(lahBioTl.demoUrl).toBeUndefined()
@@ -71,5 +71,25 @@ describe('lah-bio-tl def', () => {
   })
   it('moderationText is the text', () => {
     expect(lahBioTl.moderationText!({ key: 'k', base: '', text: 'hello' })).toBe('hello')
+  })
+})
+
+describe('lah-bio-tl per-language roster check', () => {
+  const open = { bios: { DETAIL_CEPH_H01: { jp: 'x', langs: ['en', 'hans', 'hant'] }, bio_s01: { jp: 'y', langs: ['en'] }, bio_nojp: { jp: '', langs: ['en', 'hans'] } } }
+
+  it('accepts a zh suggestion for a bio that is open in that language', () => {
+    expect(run(payload({ text: '一段简介' }), open, 'zh-Hans').ok).toBe(true)
+    expect(run(payload({ text: '一段簡介' }), open, 'zh-Hant').ok).toBe(true)
+  })
+  it('rejects a bio the game already translated into that language', () => {
+    expect(errs(run(payload({ key: 'bio_s01', text: '简介' }), open, 'zh-Hans'))).toEqual(['payload.key:bio_not_translatable'])
+    expect(run(payload({ key: 'bio_s01' }), open, 'en').ok).toBe(true)
+  })
+  it('needs Japanese text to translate from', () => {
+    expect(errs(run(payload({ key: 'bio_nojp', text: '简介' }), open, 'zh-Hans'))).toEqual(['payload.key:jp_required'])
+    expect(run(payload({ key: 'bio_nojp' }), open, 'en').ok).toBe(true)
+  })
+  it('an entry without langs offers every language', () => {
+    expect(run(payload({ text: '简介' }), roster, 'zh-Hant').ok).toBe(true)
   })
 })

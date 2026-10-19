@@ -28,6 +28,8 @@ export interface GroupInfo {
 export interface ValidateContext {
   /** Parsed roster JSON (soft existence check); undefined when unavailable. */
   roster?: unknown
+  /** The submission's language (a `def.langs` value); set by `validateSubmission`. */
+  lang?: string
 }
 
 export type ValidateResult<P> = { ok: true; value: P } | { ok: false; errors: FieldError[] }
