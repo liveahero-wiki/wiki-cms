@@ -128,7 +128,7 @@ Work that cannot run in a Worker (writing a Google Sheet needs credentials the W
 
 ## Translation types (`lah-voice-tl`, `lah-bio-tl`)
 
-Contributors suggest English, Simplified Chinese or Traditional Chinese translations of voice lines (a batch per voice resource, at most 100 lines) and of one character bio. The payloads, roster formats and the wiki side (editor, intake Action, sheet columns) are in the wiki repo's `docs/CONTRIBUTOR_EDITING_PLAN.md`; what matters here:
+Contributors suggest English, Simplified Chinese or Traditional Chinese translations of voice lines (a batch per voice resource, at most 100 lines) and of one character bio. The payloads, roster formats and the wiki side (editor, intake Action, sheet columns) are in the wiki repo's `docs/CONTRIBUTOR_EDITING.md`; what matters here:
 
 - Both are `accountOnly`, not `editable`, `publicList: false`, group `all`, `lang` `en`, `zh-Hans` or `zh-Hant` (one language per submission: `text` and `base` are in that language; `validateSubmission` passes it to the validators as `ctx.lang`), no title/tags/explanation/demo. The suggestion UI is the wiki's editor, not the embed form: it signs in with `window.cmsEmbed.contrib` and posts to `/api/contrib/submissions/<type>/all`.
 - Payload text is **plain text** (no `<`, `>`, `{%`, `{{`, `{#`, control characters other than newline; at most 2000 characters, optional note at most 500), because it ends up in a Google Sheet and then in wiki HTML. `base` (the text the contributor saw) is kept as sent and is what the intake Action compares with the sheet to detect a conflict; a suggestion equal to `base` is rejected.
