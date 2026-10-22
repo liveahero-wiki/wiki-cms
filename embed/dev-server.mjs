@@ -69,7 +69,7 @@ const config = {
   explanation: { maxLength: 5000, template },
   demoUrl: {
     required: true,
-    allowedHosts: ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com', 'x.com', 'www.x.com', 'bsky.app'],
+    allowedHosts: ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'bilibili.com', 'www.bilibili.com', 'm.bilibili.com', 'b23.tv', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com', 'x.com', 'www.x.com', 'bsky.app'],
   },
   turnstileSiteKey: '1x00000000000000000000AA', // Cloudflare's always-passes test key
   disclaimer: null,

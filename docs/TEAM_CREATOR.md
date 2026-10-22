@@ -51,7 +51,7 @@ The validator is authoritative and the plugin mirrors it for UX (the plugin's `v
 - The roster existence check is soft (only when the roster was fetched), and the "no sidekick of the hero's own character" rule needs the roster's `characterId`.
 - The **focus-card rule** (`options.focus`: a team in that group must feature the card) is a generic group option that the single `all` group no longer uses. It stays supported by the validator.
 - A group's options are re-validated against only when a moderator edits or moves a submission: the payload is always validated against the *resulting* group, so moving between support and no-support groups needs `supportIndex` fixed in the same request. Flipping `support` in the wiki later does not auto-reject approved rows.
-- Demo links are optional; allowed hosts are YouTube, X/Twitter and Bluesky only.
+- Demo links are optional; allowed hosts are YouTube, Bilibili (`bilibili.com`, `b23.tv`), X/Twitter and Bluesky only.
 
 ## Data migration
 

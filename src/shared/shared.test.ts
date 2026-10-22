@@ -124,6 +124,9 @@ describe('demo url', () => {
     expect(ok('https://www.youtube.com/watch?v=abc&feature=share&utm_source=x&t=5')).toBe('https://www.youtube.com/watch?v=abc&t=5')
     expect(ok('https://x.com/u/status/1?s=20&t=abc')).toBe('https://x.com/u/status/1')
     expect(ok('https://bsky.app/profile/a/post/b')).toBe('https://bsky.app/profile/a/post/b')
+    expect(ok('https://www.bilibili.com/video/BV1xx?p=2&t=30&spm_id_from=333.1007&vd_source=abc')).toBe('https://www.bilibili.com/video/BV1xx?p=2&t=30')
+    expect(ok('https://b23.tv/MhAX2tP')).toBe('https://b23.tv/MhAX2tP')
+    expect(ok('https://b23.tv.evil.com/MhAX2tP')).toBe('ERR:demo_host')
   })
   it('allows an empty link when optional', () => {
     expect(ok('')).toBe('')

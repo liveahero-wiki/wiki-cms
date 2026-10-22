@@ -119,7 +119,7 @@ export async function postSubmission(o: ListOpts, body: SubmitRequest): Promise<
 
 // ---- demo link ----
 
-export type DemoPlatform = 'YouTube' | 'X' | 'Bluesky'
+export type DemoPlatform = 'YouTube' | 'Bilibili' | 'X' | 'Bluesky'
 
 /** Mirrors src/core/demo-url.ts `demoPlatform`; returns the display name. */
 export function demoPlatform(host: string): DemoPlatform | null {
@@ -127,6 +127,7 @@ export function demoPlatform(host: string): DemoPlatform | null {
   if (h === 'youtube.com' || h.endsWith('.youtube.com') || h === 'youtu.be') return 'YouTube'
   if (h === 'twitter.com' || h.endsWith('.twitter.com') || h === 'x.com' || h.endsWith('.x.com')) return 'X'
   if (h === 'bsky.app') return 'Bluesky'
+  if (h === 'bilibili.com' || h.endsWith('.bilibili.com') || h === 'b23.tv') return 'Bilibili'
   return null
 }
 
