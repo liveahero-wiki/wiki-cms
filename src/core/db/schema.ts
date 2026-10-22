@@ -134,10 +134,23 @@ export const contributor_tab = sqliteTable('contributor_tab', {
     .primaryKey()
     .references(() => user_tab.id, { onDelete: 'cascade' }),
   displayName: text('display_name').notNull(),
+  // Bluesky handle at first sign-in (moderators only, never in a public response). Null for other providers.
+  handle: text('handle'),
   // Reserved for later auto-approve of trusted contributors; unused for now.
   trustLevel: integer('trust_level').notNull().default(0),
   createdAt: integer('created_at').notNull(),
 })
+
+/** Pending OAuth authorization requests of the Bluesky sign-in (state key -> JSON incl. the DPoP key). Short-lived; swept hourly. */
+export const oauth_state_tab = sqliteTable(
+  'oauth_state_tab',
+  {
+    key: text('key').primaryKey(),
+    value: text('value').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+  },
+  (t) => [index('oauth_state_expires').on(t.expiresAt)],
+)
 
 /** Opaque bearer tokens for /api/contrib/*. Only the SHA-256 is stored. Never accepted by /api/admin/*. */
 export const contrib_token_tab = sqliteTable(
@@ -240,6 +253,7 @@ export const schema = {
   submission_tab,
   contributor_tab,
   contrib_token_tab,
+  oauth_state_tab,
   submission_revision_tab,
   moderator_permission_tab,
   invite_tab,

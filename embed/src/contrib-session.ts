@@ -10,7 +10,7 @@ export interface StoredSession {
   user: ContribUser
 }
 
-export type SignInErrorCode = 'popup_blocked' | 'closed' | 'account_too_young' | 'unauthenticated' | 'unavailable'
+export type SignInErrorCode = 'popup_blocked' | 'closed' | 'account_too_young' | 'age_check_unavailable' | 'unauthenticated' | 'unavailable'
 
 export class SignInError extends Error {
   constructor(
@@ -74,10 +74,11 @@ export function onSessionChange(api: string, cb: () => void): () => void {
  * Opens the Worker's sign-in popup and resolves with the session it posts back. Call it directly from a click handler
  * (popup blockers). Only messages from the Worker origin AND from the popup we opened are accepted.
  */
-export function signIn(api: string, provider = 'discord'): Promise<StoredSession> {
+export function signIn(api: string, provider?: string): Promise<StoredSession> {
   const a = normalize(api)
   const apiOrigin = new URL(a).origin
-  const url = `${apiOrigin}/api/contrib/auth/start?provider=${encodeURIComponent(provider)}&o=${encodeURIComponent(location.origin)}`
+  // Without a provider the popup shows the chooser (or goes straight to the only provider); `provider` bypasses it.
+  const url = `${apiOrigin}/api/contrib/auth/start?${provider ? `provider=${encodeURIComponent(provider)}&` : ''}o=${encodeURIComponent(location.origin)}`
   const popup = window.open(url, 'cms-signin', 'popup=yes,width=520,height=720')
   if (!popup) return Promise.reject(new SignInError('popup_blocked'))
   return new Promise<StoredSession>((resolve, reject) => {

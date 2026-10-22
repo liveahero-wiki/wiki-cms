@@ -1,18 +1,22 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { CONTRIB_MIN_ACCOUNT_AGE_DAYS, DAY_MS, GROUP_ID_RE, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, SUBMISSIONS_PER_USER_PER_DAY, TYPE_ID_RE } from '../../config.ts'
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import { BSKY_STATE_TTL_MS, CONTRIB_MIN_ACCOUNT_AGE_DAYS, DAY_MS, GROUP_ID_RE, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, SUBMISSIONS_PER_USER_PER_DAY, TYPE_ID_RE } from '../../config.ts'
 import type { ContribAuthMessage, ContribSubmission, ContribRevision } from '../../shared/api-types.ts'
 import { aiModerate } from '../ai-moderation.ts'
+import { AtprotoError, clientMetadataDocument, createAtprotoAuth, selfOrigins } from '../atproto.ts'
 import { writeAudit } from '../audit.ts'
 import { getAuth } from '../auth.ts'
+import { fetchBskyProfile, normalizeHandleInput, PLC_DID_RE } from '../bluesky.ts'
 import { allowedContribOrigins, contribCors, mintContribToken, normalizeDisplayName, requireContributor } from '../contrib-auth.ts'
 import { getDb } from '../db/client.ts'
 import { account_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, submission_revision_tab, submission_tab, user_tab } from '../db/schema.ts'
 import { notifyNewSubmission } from '../discord-notify.ts'
 import { outcomeOf } from '../external.ts'
 import { getGroup, getRoster } from '../groups.ts'
-import { apiError, type AppEnv, type Ctx } from '../http.ts'
-import { getProvider, PROVIDERS } from '../providers.ts'
+import { apiError, safeEqual, sha256Hex, type AppEnv, type Ctx } from '../http.ts'
+import { ipKey } from '../ip.ts'
+import { getProvider, PROVIDERS, ProviderUnavailable } from '../providers.ts'
 import { checkClient, checkHuman, countIpRecent, countPending, countUserRecent, countryOf, isHoneypot, moderationInput, readBody } from '../submit-guards.ts'
 import { validateSubmission } from '../submission-validate.ts'
 import { getType, type ResolvedType } from '../types-runtime.ts'
@@ -32,11 +36,12 @@ function nonce(): string {
 /** JSON safe to embed in an HTML <script> block. */
 const safeJson = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
 
-function htmlPage(c: Ctx, status: 200 | 400, title: string, message: string, script: string, data: unknown) {
+/** `message` and `extra` are raw HTML: escape anything user-controlled before passing it in. */
+function htmlPage(c: Ctx, status: 200 | 400, title: string, message: string, script: string, data: unknown, extra = '') {
   const n = nonce()
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<style nonce="${n}">body{font:16px system-ui,sans-serif;margin:3rem auto;max-width:28rem;padding:0 1rem;color:#222}@media(prefers-color-scheme:dark){body{background:#1b1b1f;color:#ddd}}</style></head>
-<body><p id="m">${message}</p><script type="application/json" id="d">${safeJson(data)}</script><script nonce="${n}">${script}</script></body></html>`
+<style nonce="${n}">body{font:16px system-ui,sans-serif;margin:3rem auto;max-width:28rem;padding:0 1rem;color:#222}.btn,input{box-sizing:border-box;width:100%;margin:.4rem 0;padding:.7rem 1rem;font:inherit;border:1px solid #888;border-radius:.4rem;background:transparent;color:inherit}.btn{display:block;text-align:center;text-decoration:none;cursor:pointer}@media(prefers-color-scheme:dark){body{background:#1b1b1f;color:#ddd}}</style></head>
+<body><p id="m">${message}</p>${extra}<script type="application/json" id="d">${safeJson(data)}</script><script nonce="${n}">${script}</script></body></html>`
   return c.html(body, status, {
     'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${n}'; style-src 'nonce-${n}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     'Referrer-Policy': 'no-referrer',
@@ -45,33 +50,65 @@ function htmlPage(c: Ctx, status: 200 | 400, title: string, message: string, scr
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
 
-/** Starts the provider sign-in inside the popup. */
+const startUrl = (providerId: string, origin: string) => `/api/contrib/auth/start?provider=${encodeURIComponent(providerId)}&o=${encodeURIComponent(origin)}`
+
+const BSKY_HANDLE_SCRIPT = `var d=JSON.parse(document.getElementById('d').textContent);
+var f=document.getElementById('f'),i=document.getElementById('h'),b=document.getElementById('b'),m=document.getElementById('m');
+var T={handle_unresolved:"We couldn't find that Bluesky account. Check the handle and try again.",unsupported_did:'Only accounts hosted with a did:plc identity can sign in.',unavailable:'Bluesky is not reachable right now. Please try again in a moment.',rate_limited:'Too many attempts. Please wait a minute and try again.'};
+f.addEventListener('submit',function(e){e.preventDefault();b.disabled=true;m.textContent='Contacting Bluesky…';
+fetch('/api/contrib/auth/bsky/authorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({handle:i.value,o:d.origin})})
+.then(function(r){return r.json()}).then(function(j){if(j&&j.url){location.href=j.url}else{throw j}})
+.catch(function(j){b.disabled=false;m.textContent=(j&&j.error&&T[j.error.code])||'Could not start sign-in. Please try again.'})});
+i.focus()`
+
+const BSKY_HANDLE_FORM = `<form id="f" autocomplete="off"><input id="h" name="h" type="text" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="253" required placeholder="alice.bsky.social" aria-label="Bluesky handle"><button id="b" type="submit" class="btn">Continue</button></form>`
+
+/**
+ * Starts the sign-in inside the popup. Without `provider`, the user picks one here (a single configured provider skips the chooser);
+ * `?provider=<id>` bypasses the chooser.
+ */
 contribRoutes.get('/auth/start', async (c) => {
-  const provider = getProvider(c.req.query('provider') ?? 'discord')
   const origin = c.req.query('o') ?? ''
-  if (!provider || !provider.configured(c.env)) return htmlPage(c, 400, 'Sign in', 'This sign-in method is not available.', '', {})
+  const configured = PROVIDERS.filter((p) => p.configured(c.env))
+  const asked = c.req.query('provider')
+  const provider = asked ? getProvider(asked) : configured.length === 1 ? configured[0] : undefined
+  const chooser = !asked && configured.length > 1
+  if (!chooser && (!provider || !provider.configured(c.env))) return htmlPage(c, 400, 'Sign in', 'This sign-in method is not available.', '', {})
   if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
+  if (chooser) {
+    const links = configured.map((p) => `<a class="btn" href="${escapeHtml(startUrl(p.id, origin))}">${escapeHtml(p.label)}</a>`).join('')
+    return htmlPage(c, 200, 'Sign in', 'Sign in with…', '', {}, links)
+  }
+  if (provider!.id === 'bluesky') return htmlPage(c, 200, 'Sign in', 'Enter your Bluesky handle.', BSKY_HANDLE_SCRIPT, { origin }, BSKY_HANDLE_FORM)
   const callbackURL = `/api/contrib/auth/done?o=${encodeURIComponent(origin)}`
   const script = `var d=JSON.parse(document.getElementById('d').textContent);
 fetch('/api/auth/sign-in/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:d.provider,callbackURL:d.callbackURL})})
 .then(function(r){return r.json()}).then(function(j){if(j&&j.url){location.href=j.url}else{throw new Error('no url')}})
 .catch(function(){document.getElementById('m').textContent='Could not start sign-in. Close this window and try again.'})`
-  return htmlPage(c, 200, 'Sign in', `Redirecting to ${escapeHtml(provider.label)}…`, script, { provider: provider.id, callbackURL })
+  return htmlPage(c, 200, 'Sign in', `Redirecting to ${escapeHtml(provider!.label)}…`, script, { provider: provider!.id, callbackURL })
 })
+
+type AgeVerdict = { ok: true } | { ok: false; eligibleAt: number | null }
+
+/** `created` = when the provider account was created (null = unknown, ineligible). */
+function ageVerdict(created: number | null, now: number): AgeVerdict {
+  if (created === null) return { ok: false, eligibleAt: null }
+  const eligibleAt = created + CONTRIB_MIN_ACCOUNT_AGE_DAYS * DAY_MS
+  return now >= eligibleAt ? { ok: true } : { ok: false, eligibleAt }
+}
 
 /**
  * Returns whether the user's provider account is old enough. Checked only when a user first becomes a contributor,
- * so existing contributors and moderators are never re-checked.
+ * so existing contributors and moderators are never re-checked. Throws ProviderUnavailable when an age cannot be determined right now.
  */
-async function accountAgeOk(c: Ctx, userId: string, now: number): Promise<{ ok: true } | { ok: false; eligibleAt: number | null }> {
+async function accountAgeOk(c: Ctx, userId: string, now: number): Promise<AgeVerdict> {
   const accounts = await getDb(c.env).select({ providerId: account_tab.providerId, accountId: account_tab.accountId }).from(account_tab).where(eq(account_tab.userId, userId)).all()
   let earliest: number | null = null
   for (const a of accounts) {
-    const created = getProvider(a.providerId)?.accountCreatedAt(a.accountId) ?? null
-    if (created === null) continue
-    const eligibleAt = created + CONTRIB_MIN_ACCOUNT_AGE_DAYS * DAY_MS
-    if (now >= eligibleAt) return { ok: true }
-    earliest = earliest === null ? eligibleAt : Math.min(earliest, eligibleAt)
+    const created = (await getProvider(a.providerId)?.accountCreatedAt(a.accountId, c.env)) ?? null
+    const v = ageVerdict(created, now)
+    if (v.ok) return v
+    if (v.eligibleAt !== null) earliest = earliest === null ? v.eligibleAt : Math.min(earliest, v.eligibleAt)
   }
   return { ok: false, eligibleAt: earliest }
 }
@@ -85,38 +122,174 @@ function popupResult(c: Ctx, origin: string, msg: ContribAuthMessage, message: s
   return htmlPage(c, status, 'Sign in', message, POST_SCRIPT, { origin, msg, done: message, fallback })
 }
 
-/** OAuth callback target. Mints a bearer token and hands it to the wiki tab that opened the popup. */
+const tooYoungResult = (c: Ctx, origin: string, eligibleAt: number | null) => {
+  const when = eligibleAt ? ` You can sign in again on ${new Date(eligibleAt).toISOString().slice(0, 10)}.` : ''
+  return popupResult(c, origin, { type: 'cms-contrib-error', code: 'account_too_young', eligibleAt }, `Your account must be at least ${CONTRIB_MIN_ACCOUNT_AGE_DAYS} days old to contribute.${when}`, 400)
+}
+
+const ageUnavailableResult = (c: Ctx, origin: string) =>
+  popupResult(c, origin, { type: 'cms-contrib-error', code: 'age_check_unavailable' }, 'We could not check your account age right now. Close this window and try again in a few minutes.', 400)
+
+const unauthenticatedResult = (c: Ctx, origin: string) =>
+  popupResult(c, origin, { type: 'cms-contrib-error', code: 'unauthenticated' }, 'Sign-in did not complete. You can close this window and try again.', 400)
+
+/**
+ * Shared tail of every provider's sign-in: creates the contributor profile when missing (audited), mints the bearer token and
+ * hands it to the wiki tab. The account-age gate is the caller's job and has already passed. `handle` is only stored on creation.
+ */
+async function signInContributor(c: Ctx, origin: string, now: number, user: { id: string; name: string; image: string | null }, handle: string | null) {
+  const db = getDb(c.env)
+  let profile = await db.select().from(contributor_tab).where(eq(contributor_tab.userId, user.id)).get()
+  if (!profile) {
+    const displayName = normalizeDisplayName(user.name) ?? 'Contributor'
+    await db.insert(contributor_tab).values({ userId: user.id, displayName, handle, createdAt: now }).onConflictDoNothing().run()
+    await writeAudit(db, { actor: user.id, action: 'contrib.create' }, now)
+    profile = (await db.select().from(contributor_tab).where(eq(contributor_tab.userId, user.id)).get())!
+  }
+  const token = await mintContribToken(c.env, user.id, origin, now)
+  return popupResult(c, origin, { type: 'cms-contrib', token, user: { id: user.id, displayName: profile.displayName, image: user.image } }, 'Signed in. You can close this window.')
+}
+
+/** OAuth callback target (BetterAuth providers). Mints a bearer token and hands it to the wiki tab that opened the popup. */
 contribRoutes.get('/auth/done', async (c) => {
   const origin = c.req.query('o') ?? ''
   if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
   const now = c.get('deps').now()
   const db = getDb(c.env)
   const session = await getAuth(c.env).api.getSession({ headers: c.req.raw.headers })
-  if (!session) return popupResult(c, origin, { type: 'cms-contrib-error', code: 'unauthenticated' }, 'Sign-in did not complete. You can close this window and try again.', 400)
+  if (!session) return unauthenticatedResult(c, origin)
   const userId = session.user.id
 
-  let profile = await db.select().from(contributor_tab).where(eq(contributor_tab.userId, userId)).get()
-  if (!profile) {
+  const isContributor = !!(await db.select({ u: contributor_tab.userId }).from(contributor_tab).where(eq(contributor_tab.userId, userId)).get())
+  if (!isContributor) {
     const isModerator = !!(await db.select({ t: moderator_permission_tab.type }).from(moderator_permission_tab).where(eq(moderator_permission_tab.userId, userId)).get())
     if (!isModerator) {
-      const age = await accountAgeOk(c, userId, now)
+      let age: AgeVerdict
+      try {
+        age = await accountAgeOk(c, userId, now)
+      } catch (e) {
+        if (e instanceof ProviderUnavailable) return ageUnavailableResult(c, origin)
+        throw e
+      }
       if (!age.ok) {
         // Drop the account BetterAuth just created for this sign-in (nothing else references it).
         const hasInvite = !!(await db.select({ t: invite_tab.tokenHash }).from(invite_tab).where(eq(invite_tab.usedBy, userId)).get())
         const hasSubmissions = !!(await db.select({ t: submission_tab.id }).from(submission_tab).where(eq(submission_tab.userId, userId)).get())
         if (!hasInvite && !hasSubmissions) await db.delete(user_tab).where(eq(user_tab.id, userId)).run()
-        const days = CONTRIB_MIN_ACCOUNT_AGE_DAYS
-        const when = age.eligibleAt ? ` You can sign in again on ${new Date(age.eligibleAt).toISOString().slice(0, 10)}.` : ''
-        return popupResult(c, origin, { type: 'cms-contrib-error', code: 'account_too_young', eligibleAt: age.eligibleAt }, `Your account must be at least ${days} days old to contribute.${when}`, 400)
+        return tooYoungResult(c, origin, age.eligibleAt)
       }
     }
-    const displayName = normalizeDisplayName(session.user.name) ?? 'Contributor'
-    await db.insert(contributor_tab).values({ userId, displayName, createdAt: now }).onConflictDoNothing().run()
-    await writeAudit(db, { actor: userId, action: 'contrib.create' }, now)
-    profile = (await db.select().from(contributor_tab).where(eq(contributor_tab.userId, userId)).get())!
   }
-  const token = await mintContribToken(c.env, userId, origin, now)
-  return popupResult(c, origin, { type: 'cms-contrib', token, user: { id: userId, displayName: profile.displayName, image: session.user.image ?? null } }, 'Signed in. You can close this window.')
+  return signInContributor(c, origin, now, { id: userId, name: session.user.name, image: session.user.image ?? null }, null)
+})
+
+// ---- Bluesky (own OAuth flow, no BetterAuth session; see atproto.ts) ----
+
+const BSKY_COOKIE = 'cms_bsky_flow'
+const BSKY_COOKIE_PATH = '/api/contrib/auth/bsky'
+const makeAtproto = (c: Ctx) => (c.get('deps').atproto ?? createAtprotoAuth)(c.env)
+
+const AUTHORIZE_ERRORS: Record<string, { status: 400 | 502; message: string }> = {
+  handle_unresolved: { status: 400, message: 'We could not find that Bluesky account.' },
+  unsupported_did: { status: 400, message: 'Only accounts hosted with a did:plc identity can sign in.' },
+  unavailable: { status: 502, message: 'Bluesky is not reachable right now.' },
+}
+
+const logCause = (e: unknown) => (e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e))
+
+/** The hosted client metadata document Bluesky's authorization server fetches (it is our `client_id`). */
+contribRoutes.get('/auth/bsky/client-metadata.json', (c) => c.json(clientMetadataDocument(c.env), 200, { 'Cache-Control': 'public, max-age=300' }))
+
+/** Popup → `{ handle, o }`; answers `{ url }` for the popup to navigate to. Same-origin only (the popup's own script). */
+contribRoutes.post('/auth/bsky/authorize', async (c) => {
+  if (!selfOrigins(c.env).includes(c.req.header('Origin') ?? '')) return apiError(c, 403, 'bad_origin', 'Origin not allowed.')
+  const ip = c.req.header('CF-Connecting-IP') ?? ''
+  if (!(await c.env.AUTH_LIMITER.limit({ key: (ip && ipKey(ip)) || 'unknown' })).success) return apiError(c, 429, 'rate_limited', 'Too many attempts, please try again in a minute.')
+  const read = await readBody(c, 2048)
+  if (!read.ok) return read.res
+  const origin = typeof read.body.o === 'string' ? read.body.o : ''
+  if (!(await allowedContribOrigins(c.env)).has(origin)) return apiError(c, 400, 'bad_origin', 'Unknown site.')
+  const handle = normalizeHandleInput(read.body.handle)
+  if (!handle) return apiError(c, 400, 'handle_unresolved', AUTHORIZE_ERRORS.handle_unresolved!.message)
+  if (handle.startsWith('did:') && !PLC_DID_RE.test(handle)) return apiError(c, 400, 'unsupported_did', AUTHORIZE_ERRORS.unsupported_did!.message)
+
+  const flowNonce = nonce()
+  let url: string
+  try {
+    url = await makeAtproto(c).authorize(handle, { o: origin, nonce: flowNonce })
+  } catch (e) {
+    const code = e instanceof AtprotoError && e.code in AUTHORIZE_ERRORS ? e.code : 'unavailable'
+    console.warn('bluesky authorize failed:', code, logCause(e))
+    const f = AUTHORIZE_ERRORS[code]!
+    return apiError(c, f.status, code, f.message)
+  }
+  setCookie(c, BSKY_COOKIE, flowNonce, { httpOnly: true, secure: c.env.PUBLIC_URL.startsWith('https:'), sameSite: 'Lax', path: BSKY_COOKIE_PATH, maxAge: BSKY_STATE_TTL_MS / 1000 })
+  return c.json({ url })
+})
+
+/** Where the authorization server sends the popup back. Verifies the flow, reads the DID, applies the age gate and signs the user in. */
+contribRoutes.get('/auth/bsky/callback', async (c) => {
+  const auth = makeAtproto(c)
+  const stateKey = c.req.query('state') ?? ''
+  const flow = stateKey ? await auth.peekState(stateKey) : null
+  const cookie = getCookie(c, BSKY_COOKIE)
+  // Login CSRF: only the browser that started the flow may finish it (else a victim's popup could receive an attacker's token).
+  // A failed check leaves the cookie alone so a stranger cannot cancel somebody else's flow.
+  if (!flow || !cookie || !safeEqual(cookie, flow.nonce)) return htmlPage(c, 400, 'Sign in', 'This sign-in link has expired or was not started in this browser. Close this window and try again from the wiki page.', '', {})
+  deleteCookie(c, BSKY_COOKIE, { path: BSKY_COOKIE_PATH })
+  const origin = flow.o
+  if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
+  if (c.req.query('error')) return unauthenticatedResult(c, origin) // the user denied access
+
+  let did: string
+  try {
+    did = (await auth.callback(new URL(c.req.url).searchParams)).did
+  } catch (e) {
+    console.warn('bluesky callback failed:', logCause(e))
+    return unauthenticatedResult(c, origin)
+  }
+  if (!PLC_DID_RE.test(did)) return unauthenticatedResult(c, origin)
+
+  const now = c.get('deps').now()
+  const db = getDb(c.env)
+  const account = () => db.select({ userId: account_tab.userId }).from(account_tab).where(and(eq(account_tab.providerId, 'bluesky'), eq(account_tab.accountId, did))).get()
+  let acct = await account()
+  const contributor = acct ? await db.select().from(contributor_tab).where(eq(contributor_tab.userId, acct.userId)).get() : undefined
+
+  if (contributor && acct) {
+    const user = await db.select({ image: user_tab.image }).from(user_tab).where(eq(user_tab.id, acct.userId)).get()
+    return signInContributor(c, origin, now, { id: acct.userId, name: contributor.displayName, image: user?.image ?? null }, null)
+  }
+
+  // New contributor: age gate first, so a refused account leaves nothing behind.
+  let created: number | null
+  try {
+    created = await getProvider('bluesky')!.accountCreatedAt(did, c.env)
+  } catch (e) {
+    if (e instanceof ProviderUnavailable) return ageUnavailableResult(c, origin)
+    throw e
+  }
+  const age = ageVerdict(created, now)
+  if (!age.ok) return tooYoungResult(c, origin, age.eligibleAt)
+
+  const profile = await fetchBskyProfile(did)
+  let userId = acct?.userId
+  if (!userId) {
+    userId = crypto.randomUUID()
+    const ts = new Date(now)
+    try {
+      await db.batch([
+        db.insert(user_tab).values({ id: userId, name: profile.displayName, email: `bluesky-${(await sha256Hex(did)).slice(0, 32)}@users.invalid`, emailVerified: false, image: profile.image, createdAt: ts, updatedAt: ts }),
+        db.insert(account_tab).values({ id: crypto.randomUUID(), accountId: did, providerId: 'bluesky', userId, createdAt: ts, updatedAt: ts }),
+      ])
+    } catch (e) {
+      // A concurrent first sign-in of the same DID won (the synthetic e-mail is unique): carry on as that user.
+      acct = await account()
+      if (!acct) throw e
+      userId = acct.userId
+    }
+  }
+  return signInContributor(c, origin, now, { id: userId, name: profile.displayName, image: profile.image }, profile.handle)
 })
 
 contribRoutes.get('/auth/providers', async (c) => c.json({ providers: PROVIDERS.filter((p) => p.configured(c.env)).map((p) => ({ id: p.id, label: p.label })) }))

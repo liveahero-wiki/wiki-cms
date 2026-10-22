@@ -6,8 +6,6 @@ import { SignInError, signIn, type StoredSession } from './contrib-session.ts'
 import { apiErrorText, t } from './i18n/t.ts'
 import { ApiError } from './shared.ts'
 
-const PROVIDER = { id: 'discord', label: 'Discord' }
-
 /** Localized text for a failed sign-in popup. */
 export function signInErrorText(lang: Lang, e: unknown): string {
   if (!(e instanceof SignInError)) return t(lang, 'account.failed')
@@ -17,10 +15,12 @@ export function signInErrorText(lang: Lang, e: unknown): string {
     case 'closed':
       return t(lang, 'account.closed')
     case 'account_too_young': {
-      const params = { provider: PROVIDER.label, days: CONTRIB_MIN_ACCOUNT_AGE_DAYS }
+      const params = { days: CONTRIB_MIN_ACCOUNT_AGE_DAYS }
       if (!e.eligibleAt) return t(lang, 'account.tooYoungNoDate', params)
       return t(lang, 'account.tooYoung', { ...params, date: new Date(e.eligibleAt).toLocaleDateString(lang) })
     }
+    case 'age_check_unavailable':
+      return t(lang, 'account.ageCheckUnavailable')
     default:
       return t(lang, 'account.failed')
   }
@@ -35,7 +35,8 @@ export function SignInGate({ api, lang, onCancel }: { api: string; lang: Lang; o
     setBusy(true)
     setError(null)
     // `signIn` opens the popup synchronously, inside this click handler.
-    signIn(api, PROVIDER.id).then(
+    // No provider: the popup lets the user choose.
+    signIn(api).then(
       () => setBusy(false), // the Shell notices the stored session and swaps in the form
       (e) => {
         setBusy(false)
@@ -64,7 +65,7 @@ export function SignInGate({ api, lang, onCancel }: { api: string; lang: Lang; o
             {t(lang, 'form.cancel')}
           </button>
           <button type="button" class="cms-btn cms-primary" disabled={busy} onClick={start}>
-            {t(lang, 'account.signInWith', { provider: PROVIDER.label })}
+            {t(lang, 'account.signIn')}
           </button>
         </div>
       </div>

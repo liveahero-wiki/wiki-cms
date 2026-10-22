@@ -4,7 +4,7 @@ import type { Env } from '../env.ts'
 import { writeAudit } from './audit.ts'
 import type { Purger } from './cache.ts'
 import { getDb } from './db/client.ts'
-import { audit_log_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, session_tab, submission_tab, user_tab, verification_tab } from './db/schema.ts'
+import { audit_log_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, oauth_state_tab, session_tab, submission_tab, user_tab, verification_tab } from './db/schema.ts'
 import { refreshGroups, refreshRoster } from './groups.ts'
 import { republishMany } from './publish.ts'
 import { listEnabledTypes } from './types-runtime.ts'
@@ -17,6 +17,7 @@ export interface HousekeepingResult {
   verificationsDeleted: number
   usersDeleted: number
   tokensDeleted: number
+  oauthStatesDeleted: number
   contributorsPruned: number
   ipsCleared: number
   groupsRepublished: number
@@ -37,6 +38,9 @@ export async function runHousekeeping(env: Env, purge: Purger, now = Date.now())
 
   // Expired contributor tokens.
   const tokensDeleted = changes(await db.delete(contrib_token_tab).where(lt(contrib_token_tab.expiresAt, now)).run())
+
+  // Expired Bluesky authorization requests.
+  const oauthStatesDeleted = changes(await db.delete(oauth_state_tab).where(lt(oauth_state_tab.expiresAt, now)).run())
 
   // Idle contributor accounts: no submissions, no live token, no recent token use (their user row goes via the orphan rule below).
   const idleBefore = now - CONTRIB_IDLE_PRUNE_DAYS * DAY_MS
@@ -89,8 +93,8 @@ export async function runHousekeeping(env: Env, purge: Purger, now = Date.now())
     }
   }
 
-  const result = { spamDeleted, auditDeleted, invitesDeleted, sessionsDeleted, verificationsDeleted, usersDeleted, tokensDeleted, contributorsPruned, ipsCleared, groupsRepublished }
-  if (spamDeleted + auditDeleted + invitesDeleted + sessionsDeleted + verificationsDeleted + usersDeleted + tokensDeleted + contributorsPruned + ipsCleared + groupsRepublished > 0) {
+  const result = { spamDeleted, auditDeleted, invitesDeleted, sessionsDeleted, verificationsDeleted, usersDeleted, tokensDeleted, oauthStatesDeleted, contributorsPruned, ipsCleared, groupsRepublished }
+  if (spamDeleted + auditDeleted + invitesDeleted + sessionsDeleted + verificationsDeleted + usersDeleted + tokensDeleted + oauthStatesDeleted + contributorsPruned + ipsCleared + groupsRepublished > 0) {
     await writeAudit(db, { actor: 'system', action: 'system.housekeeping', detail: result }, now)
   }
   return result

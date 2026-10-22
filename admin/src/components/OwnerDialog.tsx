@@ -1,19 +1,26 @@
 import { useEffect, useState } from 'preact/hooks'
 import type { AdminOwner, AdminSubmission, ContributorsResponse, ModerationResponse, SetOwnerRequest } from '../../../src/shared/api-types.ts'
 import { api, errorMessage } from '../api.ts'
-import { ownerAccountLabel } from '../revisions.ts'
+import { ownerAccountLabel, ownerAccountUrl } from '../revisions.ts'
 import { Dialog, Notice } from './ui.tsx'
 
 /** "Name" plus the provider account in a secondary style, or "Anonymous (legacy)". */
 export function OwnerLabel({ owner }: { owner: AdminOwner | null | undefined }) {
   if (!owner) return <span class="owner owner-none">Anonymous (legacy)</span>
   const account = ownerAccountLabel(owner)
+  const url = ownerAccountUrl(owner)
   return (
     <span class="owner">
       <span class="owner-name">{owner.displayName}</span>
       {account && (
         <small class="owner-account" title={`${owner.provider ?? 'account'}: ${owner.accountId}`}>
-          {account}
+          {url ? (
+            <a href={url} target="_blank" rel="noopener noreferrer">
+              {account}
+            </a>
+          ) : (
+            account
+          )}
         </small>
       )}
     </span>
@@ -99,7 +106,7 @@ export function OwnerDialog({ item, onClose, onSaved }: Props) {
           <input
             class="input"
             type="search"
-            placeholder="Display name, Discord account id or user id"
+            placeholder="Display name, Bluesky handle, account id or user id"
             value={q}
             onInput={(e) => {
               setQ(e.currentTarget.value)

@@ -20,7 +20,8 @@
   ],
   "kv_namespaces": [{ "binding": "KV", "id": "cadf2576726d4960b3537d096bbc307e" }],
   "ratelimits": [
-    { "name": "SUBMIT_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } }
+    { "name": "SUBMIT_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } },
+    { "name": "AUTH_LIMITER", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } }
   ],
   "workers_dev": true,
   "preview_urls": false,
