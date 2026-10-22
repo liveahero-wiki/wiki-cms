@@ -53,7 +53,7 @@ export function makeHarness(over: Partial<Deps> = {}, envOver: Record<string, un
     purge,
     app,
     settle: async () => void (await Promise.allSettled(pending.splice(0))),
-    fetch: (path, init) => Promise.resolve(app.fetch(new Request('http://localhost:8787' + path, init), { ...env, SUBMIT_LIMITER: ALLOW_ALL, AUTH_LIMITER: ALLOW_ALL, ...envOver } as typeof env, ctx)),
+    fetch: (path, init) => Promise.resolve(app.fetch(new Request('http://localhost:8787' + path, init), { ...env, SUBMIT_LIMITER: ALLOW_ALL, ...envOver } as typeof env, ctx)),
   }
 }
 
@@ -76,7 +76,7 @@ export async function seedType(id: string, over: { submitAuth?: 'anonymous' | 'a
 export async function resetState(opts: { turnstile?: boolean; registry?: unknown } = {}) {
   clearGroupCaches()
   clearTypeCache()
-  for (const t of ['submission_revision_tab', 'contrib_token_tab', 'oauth_state_tab', 'contributor_tab', 'submission_tab', 'moderator_permission_tab', 'invite_tab', 'ip_block_tab', 'audit_log_tab', 'session_tab', 'account_tab', 'verification_tab', 'user_tab', 'submission_type_tab']) {
+  for (const t of ['submission_revision_tab', 'contrib_token_tab', 'contributor_tab', 'submission_tab', 'moderator_permission_tab', 'invite_tab', 'ip_block_tab', 'audit_log_tab', 'session_tab', 'account_tab', 'verification_tab', 'user_tab', 'submission_type_tab']) {
     await env.DB.prepare(`DELETE FROM ${t}`).run()
   }
   const keys = await env.KV.list()

@@ -68,16 +68,15 @@ async function loadOwners(db: Db, userIds: string[]): Promise<Map<string, AdminO
   if (!userIds.length) return out
   const [users, profiles, accounts] = await Promise.all([
     db.select({ id: user_tab.id, name: user_tab.name }).from(user_tab).where(inArray(user_tab.id, userIds)).all(),
-    db.select({ id: contributor_tab.userId, displayName: contributor_tab.displayName, handle: contributor_tab.handle }).from(contributor_tab).where(inArray(contributor_tab.userId, userIds)).all(),
+    db.select({ id: contributor_tab.userId, displayName: contributor_tab.displayName }).from(contributor_tab).where(inArray(contributor_tab.userId, userIds)).all(),
     db.select({ userId: account_tab.userId, provider: account_tab.providerId, accountId: account_tab.accountId }).from(account_tab).where(inArray(account_tab.userId, userIds)).all(),
   ])
   const names = new Map(profiles.map((p) => [p.id, p.displayName]))
-  const handles = new Map(profiles.map((p) => [p.id, p.handle]))
   const acct = new Map<string, { provider: string; accountId: string }>()
   for (const a of accounts) if (!acct.has(a.userId)) acct.set(a.userId, a)
   for (const u of users) {
     const a = acct.get(u.id)
-    out.set(u.id, { id: u.id, displayName: names.get(u.id) ?? u.name, provider: a?.provider ?? null, accountId: a?.accountId ?? null, handle: handles.get(u.id) ?? null })
+    out.set(u.id, { id: u.id, displayName: names.get(u.id) ?? u.name, provider: a?.provider ?? null, accountId: a?.accountId ?? null })
   }
   return out
 }
@@ -395,10 +394,10 @@ adminRoutes.get('/contributors', mod, async (c) => {
   const db = getDb(c.env)
   const pattern = `%${q.replace(/[\\%_]/g, (m) => '\\' + m)}%`
   const hits = await db
-    .select({ id: contributor_tab.userId, displayName: contributor_tab.displayName, handle: contributor_tab.handle, createdAt: contributor_tab.createdAt, provider: account_tab.providerId, accountId: account_tab.accountId })
+    .select({ id: contributor_tab.userId, displayName: contributor_tab.displayName, createdAt: contributor_tab.createdAt, provider: account_tab.providerId, accountId: account_tab.accountId })
     .from(contributor_tab)
     .leftJoin(account_tab, eq(account_tab.userId, contributor_tab.userId))
-    .where(or(sql`${contributor_tab.displayName} LIKE ${pattern} ESCAPE '\\'`, sql`${contributor_tab.handle} LIKE ${pattern} ESCAPE '\\'`, eq(account_tab.accountId, q), eq(contributor_tab.userId, q)))
+    .where(or(sql`${contributor_tab.displayName} LIKE ${pattern} ESCAPE '\\'`, eq(account_tab.accountId, q), eq(contributor_tab.userId, q)))
     .limit(20)
     .all()
   const seen = new Set<string>()

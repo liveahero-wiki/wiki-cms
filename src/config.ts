@@ -35,18 +35,3 @@ export const CONTRIB_IDLE_PRUNE_DAYS = 180
 export const DISPLAY_NAME_MIN = 2
 export const DISPLAY_NAME_MAX = 32
 export const REJECT_REASON_MAX = 500
-
-// ---- Sign-in popup hand-back ----
-/** The wiki tab's one-time secret (`r`) for collecting a sign-in result when `window.opener` was severed (COOP of the provider's page). */
-export const LOGIN_RESULT_ID_RE = /^[A-Za-z0-9_-]{22,64}$/
-/** How long an uncollected result waits for the wiki tab to poll for it. */
-export const LOGIN_RESULT_TTL_MS = 5 * 60 * 1000
-
-// ---- Bluesky sign-in ----
-/** Lifetime of a pending OAuth authorization request (state row + flow cookie). */
-export const BSKY_STATE_TTL_MS = 10 * 60 * 1000
-/** Name shown on Bluesky's consent screen. */
-export const BSKY_CLIENT_NAME = 'Live A Hero Wiki'
-/** Timeouts for the unauthenticated lookups made during sign-in. */
-export const PLC_TIMEOUT_MS = 5000
-export const BSKY_PROFILE_TIMEOUT_MS = 3000

@@ -1,14 +1,11 @@
 import type { Context } from 'hono'
 import type { Env } from '../env.ts'
-import type { AtprotoAuthFactory } from './atproto.ts'
 import type { Purger } from './cache.ts'
 import type { FieldError } from '../shared/plugin-api.ts'
 
 export interface Deps {
   purge: Purger
   now: () => number
-  /** Test seam: replaces the Bluesky OAuth client. */
-  atproto?: AtprotoAuthFactory
 }
 export type AppEnv = { Bindings: Env; Variables: { deps: Deps } }
 export type Ctx = Context<AppEnv>

@@ -11,7 +11,6 @@ A small community-submissions CMS that runs as a single **Cloudflare Worker** on
 - **Public embed**: a tiny loader (`/embed/v1.js`) that wiki pages include. It lazily loads a submission list and a submission form (with Turnstile) for each `data-cms-group` section on the page; a wiki that draws its own list can open the form through `window.cmsEmbed.openForm()`. The UI is localized (`en`, `zh-Hans`, `zh-Hant`, `ja`).
 - **Public API** (`/api/v1/*`): reads are served from Workers Cache in front of a KV-materialized JSON blob per group; writes go to D1 after validation, markdown policy checks, Turnstile, IP rate limiting and blocklist checks.
 - **Admin portal** (`/`): a Preact SPA for moderators (approve / mark spam / edit / bulk actions, invites, IP blocks, audit log). English only. Sign-in is Discord through [BetterAuth](https://www.better-auth.com/) with the `identify` scope only (no email).
-- **Contributor sign-in**: Discord (BetterAuth) or Bluesky (own atproto OAuth flow, identity only, tokens never stored) in a popup; a provider account must be 30 days old. Moderators sign in with Discord only.
 - **CLI** (`cli/cms.ts`): register submission types, bootstrap invites, manage moderators and IP blocks, force cache republish.
 - **Cron** (hourly): purges old spam/audit rows/invites/sessions, nulls old raw IPs, refreshes each type's group registry and roster.
 - **Optional AI moderation** via Workers AI (off by default).

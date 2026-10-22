@@ -129,7 +129,6 @@ When the type has `submitAuth: 'account'` (`GET /api/v1/types/:type`), the form 
 ```ts
 contrib.session(api?): { token, user } | null          // sync, no network
 contrib.signIn(api?, provider?): Promise<session>      // call inside a click handler (popup); rejects with SignInError { code, eligibleAt }
-// the result arrives by postMessage or, when the provider's page severed window.opener (Bluesky), by polling POST /api/contrib/auth/poll; calling signIn again abandons a pending attempt
 contrib.signOut(api?): Promise<void>
 contrib.mine(type?, api?): Promise<ContribSubmission[]> // own submissions, any state; `revision` = pending/rejected edit
 contrib.rename(displayName, api?)

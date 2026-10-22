@@ -3,8 +3,6 @@ export interface Env {
   KV: KVNamespace
   ASSETS: Fetcher
   SUBMIT_LIMITER: RateLimit
-  /** Per-IP limit on `POST /api/contrib/auth/bsky/authorize` (it makes the Worker fetch hosts the user chose). */
-  AUTH_LIMITER: RateLimit
   AI?: Ai
 
   PUBLIC_URL: string

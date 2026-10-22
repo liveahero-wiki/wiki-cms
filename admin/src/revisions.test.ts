@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { baseIsStale, changedFields, ownerAccountLabel, ownerAccountUrl, providerLabel, stableStringify } from './revisions.ts'
+import { baseIsStale, changedFields, ownerAccountLabel, providerLabel, stableStringify } from './revisions.ts'
 
 const base = {
   title: 'Team A',
@@ -39,18 +39,8 @@ describe('revisions', () => {
     expect(providerLabel('discord')).toBe('Discord')
     expect(providerLabel('foo')).toBe('Foo')
     expect(providerLabel(null)).toBe('Account')
-    expect(ownerAccountLabel({ provider: 'discord', accountId: '123456789012345678', handle: null })).toBe('Discord 123456…')
-    expect(ownerAccountLabel({ provider: 'discord', accountId: '1234', handle: null })).toBe('Discord 1234')
-    expect(ownerAccountLabel({ provider: null, accountId: null, handle: null })).toBeNull()
-  })
-
-  it('labels Bluesky owners by handle, falling back to the DID, and links by DID', () => {
-    const did = 'did:plc:abcdefghijklmnopqrstuvwx'
-    expect(providerLabel('bluesky')).toBe('Bluesky')
-    expect(ownerAccountLabel({ provider: 'bluesky', accountId: did, handle: 'alice.bsky.social' })).toBe('Bluesky @alice.bsky.social')
-    expect(ownerAccountLabel({ provider: 'bluesky', accountId: did, handle: null })).toBe('Bluesky did:plc:abcd…')
-    expect(ownerAccountUrl({ provider: 'bluesky', accountId: did })).toBe(`https://bsky.app/profile/${did}`)
-    expect(ownerAccountUrl({ provider: 'discord', accountId: '123456789012345678' })).toBeNull()
-    expect(ownerAccountUrl({ provider: 'bluesky', accountId: null })).toBeNull()
+    expect(ownerAccountLabel({ provider: 'discord', accountId: '123456789012345678' })).toBe('Discord 123456…')
+    expect(ownerAccountLabel({ provider: 'discord', accountId: '1234' })).toBe('Discord 1234')
+    expect(ownerAccountLabel({ provider: null, accountId: null })).toBeNull()
   })
 })

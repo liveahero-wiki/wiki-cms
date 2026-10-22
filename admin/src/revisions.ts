@@ -33,28 +33,16 @@ export function changedFields(current: Fields, proposed: Fields): RevisionField[
 /** True when a moderator changed the submission after the contributor started editing. */
 export const baseIsStale = (rev: Pick<AdminRevision, 'baseVersion' | 'submission'>): boolean => rev.baseVersion < rev.submission.version
 
-const PROVIDERS: Record<string, string> = { discord: 'Discord', bluesky: 'Bluesky', github: 'GitHub', google: 'Google' }
+const PROVIDERS: Record<string, string> = { discord: 'Discord', github: 'GitHub', google: 'Google' }
 
 export function providerLabel(provider: string | null): string {
   if (!provider) return 'Account'
   return PROVIDERS[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
-/**
- * "Discord 123456…" (long ids are shortened; the full id belongs in a tooltip), "Bluesky @alice.bsky.social" (the handle seen at
- * first sign-in) or "Bluesky did:plc:abcd…", or null without a provider account.
- */
-export function ownerAccountLabel(owner: Pick<AdminOwner, 'provider' | 'accountId' | 'handle'>): string | null {
+/** "Discord 123456…" (long ids are shortened; the full id belongs in a tooltip), or null without a provider account. */
+export function ownerAccountLabel(owner: Pick<AdminOwner, 'provider' | 'accountId'>): string | null {
   if (!owner.accountId) return null
-  if (owner.provider === 'bluesky') {
-    if (owner.handle) return `Bluesky @${owner.handle}`
-    return `Bluesky ${owner.accountId.length > 12 ? `${owner.accountId.slice(0, 12)}…` : owner.accountId}`
-  }
   const id = owner.accountId.length > 8 ? `${owner.accountId.slice(0, 6)}…` : owner.accountId
   return `${providerLabel(owner.provider)} ${id}`
-}
-
-/** Profile page of the provider account when we know one. Bluesky handles change, so it links by DID. */
-export function ownerAccountUrl(owner: Pick<AdminOwner, 'provider' | 'accountId'>): string | null {
-  return owner.provider === 'bluesky' && owner.accountId && /^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(owner.accountId) ? `https://bsky.app/profile/${owner.accountId}` : null
 }
