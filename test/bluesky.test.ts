@@ -181,7 +181,7 @@ describe('start page and chooser', () => {
     expect(html).toContain('/api/contrib/auth/bsky/authorize')
     expect(html).toContain('id="h"')
     expect(bsky.headers.get('Content-Security-Policy')).toContain("form-action 'none'")
-    expect(await dataOf(await start(`provider=bluesky&o=${encodeURIComponent(ORIGIN)}`))).toEqual({ origin: ORIGIN })
+    expect(await dataOf(await start(`provider=bluesky&o=${encodeURIComponent(ORIGIN)}`))).toEqual({ origin: ORIGIN, r: null })
     expect((await start(`provider=discord&o=${encodeURIComponent(ORIGIN)}`)).status).toBe(200)
     expect((await start(`provider=reddit&o=${encodeURIComponent(ORIGIN)}`)).status).toBe(400)
     expect((await start(`provider=bluesky&o=${encodeURIComponent('https://evil.example')}`)).status).toBe(400)
@@ -469,6 +469,74 @@ describe('callback: flow security', () => {
     const html = await res.text()
     expect(html).toContain('postMessage(d.msg,d.origin)')
     expect(html).not.toContain("postMessage(d.msg,'*')")
+  })
+})
+
+describe('hand-back by polling (the provider page severed window.opener)', () => {
+  const R = 'abcdefghijklmnopqrstuvwxyz012345'
+  const poll = (body: unknown, origin = ORIGIN) =>
+    h.fetch('/api/contrib/auth/poll', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify(body) })
+
+  async function signInWith(r?: string) {
+    const a = await authorize({ handle: 'alice.bsky.social', o: ORIGIN, ...(r ? { r } : {}) })
+    expect(a.status).toBe(200)
+    const state = new URL((await json(a)).url).searchParams.get('request_uri')!
+    return callback(state, cookieOf(a))
+  }
+
+  it('carries r through the OAuth state and deposits the result for the tab', async () => {
+    const res = await signInWith(R)
+    expect(res.status).toBe(200)
+    const d = await dataOf(res)
+    expect(d.polled).toBe(true)
+    const got = await poll({ r: R })
+    expect(got.status).toBe(200)
+    expect(got.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN)
+    const body = await json(got)
+    expect(body.message).toEqual(d.msg)
+    expect(body.message.type).toBe('cms-contrib')
+    // single use
+    expect(await json(await poll({ r: R }))).toEqual({ pending: true })
+  })
+
+  it('is pending before the sign-in finishes, and for another secret', async () => {
+    expect(await json(await poll({ r: R }))).toEqual({ pending: true })
+    await signInWith(R)
+    expect(await json(await poll({ r: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz' }))).toEqual({ pending: true })
+  })
+
+  it('is only handed to the origin that started the flow, and does not consume for another origin', async () => {
+    await signInWith(R)
+    const other = await poll({ r: R }, 'https://evil.example')
+    expect(other.status).toBe(403)
+    expect(await json(await poll({ r: R, }))).toMatchObject({ message: { type: 'cms-contrib' } })
+  })
+
+  it('also delivers errors (a too-young account)', async () => {
+    net.plc = { status: 200, body: plcLog(clock - 2 * DAY) }
+    expect((await signInWith(R)).status).toBe(400)
+    expect(await json(await poll({ r: R }))).toMatchObject({ message: { type: 'cms-contrib-error', code: 'account_too_young' } })
+  })
+
+  it('without r nothing is deposited and the popup keeps the opener-only fallback', async () => {
+    const res = await signInWith()
+    const d = await dataOf(res)
+    expect(d.polled).toBe(false)
+    expect(await count('oauth_state_tab', "key LIKE 'login-result:%'")).toBe(0)
+  })
+
+  it('rejects a malformed secret', async () => {
+    expect((await poll({ r: 'short' })).status).toBe(400)
+    expect((await poll({})).status).toBe(400)
+    const a = await authorize({ handle: 'alice.bsky.social', o: ORIGIN, r: 'bad value!' })
+    const state = new URL((await json(a)).url).searchParams.get('request_uri')!
+    expect(await dataOf(await callback(state, cookieOf(a)))).toMatchObject({ polled: false })
+  })
+
+  it('housekeeping-eligible: the deposit expires', async () => {
+    await signInWith(R)
+    clock += 6 * 60 * 1000
+    expect(await json(await poll({ r: R }))).toEqual({ pending: true })
   })
 })
 

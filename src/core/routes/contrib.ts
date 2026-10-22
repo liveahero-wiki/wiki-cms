@@ -1,7 +1,7 @@
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { BSKY_STATE_TTL_MS, CONTRIB_MIN_ACCOUNT_AGE_DAYS, DAY_MS, GROUP_ID_RE, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, SUBMISSIONS_PER_USER_PER_DAY, TYPE_ID_RE } from '../../config.ts'
+import { BSKY_STATE_TTL_MS, CONTRIB_MIN_ACCOUNT_AGE_DAYS, DAY_MS, GROUP_ID_RE, LOGIN_RESULT_ID_RE, LOGIN_RESULT_TTL_MS, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, SUBMISSIONS_PER_USER_PER_DAY, TYPE_ID_RE } from '../../config.ts'
 import type { ContribAuthMessage, ContribSubmission, ContribRevision } from '../../shared/api-types.ts'
 import { aiModerate } from '../ai-moderation.ts'
 import { AtprotoError, clientMetadataDocument, createAtprotoAuth, selfOrigins } from '../atproto.ts'
@@ -10,7 +10,7 @@ import { getAuth } from '../auth.ts'
 import { fetchBskyProfile, normalizeHandleInput, PLC_DID_RE } from '../bluesky.ts'
 import { allowedContribOrigins, contribCors, mintContribToken, normalizeDisplayName, requireContributor } from '../contrib-auth.ts'
 import { getDb } from '../db/client.ts'
-import { account_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, submission_revision_tab, submission_tab, user_tab } from '../db/schema.ts'
+import { account_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, oauth_state_tab, submission_revision_tab, submission_tab, user_tab } from '../db/schema.ts'
 import { notifyNewSubmission } from '../discord-notify.ts'
 import { outcomeOf } from '../external.ts'
 import { getGroup, getRoster } from '../groups.ts'
@@ -50,13 +50,21 @@ function htmlPage(c: Ctx, status: 200 | 400, title: string, message: string, scr
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
 
-const startUrl = (providerId: string, origin: string) => `/api/contrib/auth/start?provider=${encodeURIComponent(providerId)}&o=${encodeURIComponent(origin)}`
+/** Where a sign-in result goes: the wiki tab's origin plus its optional hand-back secret (see `popupResult`). */
+interface Flow {
+  origin: string
+  r: string | null
+}
+
+const flowOf = (origin: string, r: string | undefined): Flow => ({ origin, r: r && LOGIN_RESULT_ID_RE.test(r) ? r : null })
+
+const startUrl = (providerId: string, flow: Flow) => `/api/contrib/auth/start?provider=${encodeURIComponent(providerId)}&o=${encodeURIComponent(flow.origin)}${flow.r ? `&r=${flow.r}` : ''}`
 
 const BSKY_HANDLE_SCRIPT = `var d=JSON.parse(document.getElementById('d').textContent);
 var f=document.getElementById('f'),i=document.getElementById('h'),b=document.getElementById('b'),m=document.getElementById('m');
 var T={handle_unresolved:"We couldn't find that Bluesky account. Check the handle and try again.",unsupported_did:'Only accounts hosted with a did:plc identity can sign in.',unavailable:'Bluesky is not reachable right now. Please try again in a moment.',rate_limited:'Too many attempts. Please wait a minute and try again.'};
 f.addEventListener('submit',function(e){e.preventDefault();b.disabled=true;m.textContent='Contacting Bluesky…';
-fetch('/api/contrib/auth/bsky/authorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({handle:i.value,o:d.origin})})
+fetch('/api/contrib/auth/bsky/authorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({handle:i.value,o:d.origin,r:d.r})})
 .then(function(r){return r.json()}).then(function(j){if(j&&j.url){location.href=j.url}else{throw j}})
 .catch(function(j){b.disabled=false;m.textContent=(j&&j.error&&T[j.error.code])||'Could not start sign-in. Please try again.'})});
 i.focus()`
@@ -68,7 +76,8 @@ const BSKY_HANDLE_FORM = `<form id="f" autocomplete="off"><input id="h" name="h"
  * `?provider=<id>` bypasses the chooser.
  */
 contribRoutes.get('/auth/start', async (c) => {
-  const origin = c.req.query('o') ?? ''
+  const flow = flowOf(c.req.query('o') ?? '', c.req.query('r'))
+  const origin = flow.origin
   const configured = PROVIDERS.filter((p) => p.configured(c.env))
   const asked = c.req.query('provider')
   const provider = asked ? getProvider(asked) : configured.length === 1 ? configured[0] : undefined
@@ -76,11 +85,11 @@ contribRoutes.get('/auth/start', async (c) => {
   if (!chooser && (!provider || !provider.configured(c.env))) return htmlPage(c, 400, 'Sign in', 'This sign-in method is not available.', '', {})
   if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
   if (chooser) {
-    const links = configured.map((p) => `<a class="btn" href="${escapeHtml(startUrl(p.id, origin))}">${escapeHtml(p.label)}</a>`).join('')
+    const links = configured.map((p) => `<a class="btn" href="${escapeHtml(startUrl(p.id, flow))}">${escapeHtml(p.label)}</a>`).join('')
     return htmlPage(c, 200, 'Sign in', 'Sign in with…', '', {}, links)
   }
-  if (provider!.id === 'bluesky') return htmlPage(c, 200, 'Sign in', 'Enter your Bluesky handle.', BSKY_HANDLE_SCRIPT, { origin }, BSKY_HANDLE_FORM)
-  const callbackURL = `/api/contrib/auth/done?o=${encodeURIComponent(origin)}`
+  if (provider!.id === 'bluesky') return htmlPage(c, 200, 'Sign in', 'Enter your Bluesky handle. You will continue on the Bluesky sign-in page, so we never see your password.', BSKY_HANDLE_SCRIPT, flow, BSKY_HANDLE_FORM)
+  const callbackURL = `/api/contrib/auth/done?o=${encodeURIComponent(origin)}${flow.r ? `&r=${flow.r}` : ''}`
   const script = `var d=JSON.parse(document.getElementById('d').textContent);
 fetch('/api/auth/sign-in/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:d.provider,callbackURL:d.callbackURL})})
 .then(function(r){return r.json()}).then(function(j){if(j&&j.url){location.href=j.url}else{throw new Error('no url')}})
@@ -113,31 +122,48 @@ async function accountAgeOk(c: Ctx, userId: string, now: number): Promise<AgeVer
   return { ok: false, eligibleAt: earliest }
 }
 
-const POST_SCRIPT = `var el=document.getElementById('d'),d=JSON.parse(el.textContent);el.remove();
-if(window.opener&&d.origin){window.opener.postMessage(d.msg,d.origin);document.getElementById('m').textContent=d.done;setTimeout(function(){window.close()},400)}
-else{document.getElementById('m').textContent=d.fallback}`
+const POST_SCRIPT = `var el=document.getElementById('d'),d=JSON.parse(el.textContent),m=document.getElementById('m'),ok=false;el.remove();
+if(window.opener&&d.origin){try{window.opener.postMessage(d.msg,d.origin);ok=true}catch(e){}}
+if(ok||d.polled){m.textContent=d.done;setTimeout(function(){window.close()},400)}else{m.textContent=d.fallback}`
 
-function popupResult(c: Ctx, origin: string, msg: ContribAuthMessage, message: string, status: 200 | 400 = 200) {
+/** Rows of `oauth_state_tab` that carry a sign-in result are keyed by the hash of the wiki tab's secret. */
+const loginResultKey = async (r: string) => `login-result:${await sha256Hex(r)}`
+
+/**
+ * Hands the result to the wiki tab. Two ways, both used: `postMessage` to `window.opener`, and a short-lived row the tab
+ * collects with `POST /auth/poll` using its secret `r`. The second exists because a provider's page can send a
+ * `Cross-Origin-Opener-Policy` that severs `window.opener` (bsky.social does), after which only polling can work.
+ */
+async function popupResult(c: Ctx, flow: Flow, msg: ContribAuthMessage, message: string, status: 200 | 400 = 200) {
+  if (flow.r) {
+    const expiresAt = c.get('deps').now() + LOGIN_RESULT_TTL_MS
+    const value = JSON.stringify({ origin: flow.origin, msg })
+    await getDb(c.env)
+      .insert(oauth_state_tab)
+      .values({ key: await loginResultKey(flow.r), value, expiresAt })
+      .onConflictDoUpdate({ target: oauth_state_tab.key, set: { value, expiresAt } })
+      .run()
+  }
   const fallback = msg.type === 'cms-contrib' ? 'Signed in, but this window lost its connection to the wiki. Close it and try again from the wiki page.' : message
-  return htmlPage(c, status, 'Sign in', message, POST_SCRIPT, { origin, msg, done: message, fallback })
+  return htmlPage(c, status, 'Sign in', message, POST_SCRIPT, { origin: flow.origin, msg, done: message, fallback, polled: !!flow.r })
 }
 
-const tooYoungResult = (c: Ctx, origin: string, eligibleAt: number | null) => {
+const tooYoungResult = (c: Ctx, flow: Flow, eligibleAt: number | null) => {
   const when = eligibleAt ? ` You can sign in again on ${new Date(eligibleAt).toISOString().slice(0, 10)}.` : ''
-  return popupResult(c, origin, { type: 'cms-contrib-error', code: 'account_too_young', eligibleAt }, `Your account must be at least ${CONTRIB_MIN_ACCOUNT_AGE_DAYS} days old to contribute.${when}`, 400)
+  return popupResult(c, flow, { type: 'cms-contrib-error', code: 'account_too_young', eligibleAt }, `Your account must be at least ${CONTRIB_MIN_ACCOUNT_AGE_DAYS} days old to contribute.${when}`, 400)
 }
 
-const ageUnavailableResult = (c: Ctx, origin: string) =>
-  popupResult(c, origin, { type: 'cms-contrib-error', code: 'age_check_unavailable' }, 'We could not check your account age right now. Close this window and try again in a few minutes.', 400)
+const ageUnavailableResult = (c: Ctx, flow: Flow) =>
+  popupResult(c, flow, { type: 'cms-contrib-error', code: 'age_check_unavailable' }, 'We could not check your account age right now. Close this window and try again in a few minutes.', 400)
 
-const unauthenticatedResult = (c: Ctx, origin: string) =>
-  popupResult(c, origin, { type: 'cms-contrib-error', code: 'unauthenticated' }, 'Sign-in did not complete. You can close this window and try again.', 400)
+const unauthenticatedResult = (c: Ctx, flow: Flow) =>
+  popupResult(c, flow, { type: 'cms-contrib-error', code: 'unauthenticated' }, 'Sign-in did not complete. You can close this window and try again.', 400)
 
 /**
  * Shared tail of every provider's sign-in: creates the contributor profile when missing (audited), mints the bearer token and
  * hands it to the wiki tab. The account-age gate is the caller's job and has already passed. `handle` is only stored on creation.
  */
-async function signInContributor(c: Ctx, origin: string, now: number, user: { id: string; name: string; image: string | null }, handle: string | null) {
+async function signInContributor(c: Ctx, flow: Flow, now: number, user: { id: string; name: string; image: string | null }, handle: string | null) {
   const db = getDb(c.env)
   let profile = await db.select().from(contributor_tab).where(eq(contributor_tab.userId, user.id)).get()
   if (!profile) {
@@ -146,18 +172,19 @@ async function signInContributor(c: Ctx, origin: string, now: number, user: { id
     await writeAudit(db, { actor: user.id, action: 'contrib.create' }, now)
     profile = (await db.select().from(contributor_tab).where(eq(contributor_tab.userId, user.id)).get())!
   }
-  const token = await mintContribToken(c.env, user.id, origin, now)
-  return popupResult(c, origin, { type: 'cms-contrib', token, user: { id: user.id, displayName: profile.displayName, image: user.image } }, 'Signed in. You can close this window.')
+  const token = await mintContribToken(c.env, user.id, flow.origin, now)
+  return popupResult(c, flow, { type: 'cms-contrib', token, user: { id: user.id, displayName: profile.displayName, image: user.image } }, 'Signed in. You can close this window.')
 }
 
 /** OAuth callback target (BetterAuth providers). Mints a bearer token and hands it to the wiki tab that opened the popup. */
 contribRoutes.get('/auth/done', async (c) => {
-  const origin = c.req.query('o') ?? ''
+  const flow = flowOf(c.req.query('o') ?? '', c.req.query('r'))
+  const origin = flow.origin
   if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
   const now = c.get('deps').now()
   const db = getDb(c.env)
   const session = await getAuth(c.env).api.getSession({ headers: c.req.raw.headers })
-  if (!session) return unauthenticatedResult(c, origin)
+  if (!session) return unauthenticatedResult(c, flow)
   const userId = session.user.id
 
   const isContributor = !!(await db.select({ u: contributor_tab.userId }).from(contributor_tab).where(eq(contributor_tab.userId, userId)).get())
@@ -168,7 +195,7 @@ contribRoutes.get('/auth/done', async (c) => {
       try {
         age = await accountAgeOk(c, userId, now)
       } catch (e) {
-        if (e instanceof ProviderUnavailable) return ageUnavailableResult(c, origin)
+        if (e instanceof ProviderUnavailable) return ageUnavailableResult(c, flow)
         throw e
       }
       if (!age.ok) {
@@ -176,11 +203,11 @@ contribRoutes.get('/auth/done', async (c) => {
         const hasInvite = !!(await db.select({ t: invite_tab.tokenHash }).from(invite_tab).where(eq(invite_tab.usedBy, userId)).get())
         const hasSubmissions = !!(await db.select({ t: submission_tab.id }).from(submission_tab).where(eq(submission_tab.userId, userId)).get())
         if (!hasInvite && !hasSubmissions) await db.delete(user_tab).where(eq(user_tab.id, userId)).run()
-        return tooYoungResult(c, origin, age.eligibleAt)
+        return tooYoungResult(c, flow, age.eligibleAt)
       }
     }
   }
-  return signInContributor(c, origin, now, { id: userId, name: session.user.name, image: session.user.image ?? null }, null)
+  return signInContributor(c, flow, now, { id: userId, name: session.user.name, image: session.user.image ?? null }, null)
 })
 
 // ---- Bluesky (own OAuth flow, no BetterAuth session; see atproto.ts) ----
@@ -213,10 +240,11 @@ contribRoutes.post('/auth/bsky/authorize', async (c) => {
   if (!handle) return apiError(c, 400, 'handle_unresolved', AUTHORIZE_ERRORS.handle_unresolved!.message)
   if (handle.startsWith('did:') && !PLC_DID_RE.test(handle)) return apiError(c, 400, 'unsupported_did', AUTHORIZE_ERRORS.unsupported_did!.message)
 
+  const r = typeof read.body.r === 'string' && LOGIN_RESULT_ID_RE.test(read.body.r) ? read.body.r : null
   const flowNonce = nonce()
   let url: string
   try {
-    url = await makeAtproto(c).authorize(handle, { o: origin, nonce: flowNonce })
+    url = await makeAtproto(c).authorize(handle, { o: origin, nonce: flowNonce, ...(r ? { r } : {}) })
   } catch (e) {
     const code = e instanceof AtprotoError && e.code in AUTHORIZE_ERRORS ? e.code : 'unavailable'
     console.warn('bluesky authorize failed:', code, logCause(e))
@@ -237,18 +265,18 @@ contribRoutes.get('/auth/bsky/callback', async (c) => {
   // A failed check leaves the cookie alone so a stranger cannot cancel somebody else's flow.
   if (!flow || !cookie || !safeEqual(cookie, flow.nonce)) return htmlPage(c, 400, 'Sign in', 'This sign-in link has expired or was not started in this browser. Close this window and try again from the wiki page.', '', {})
   deleteCookie(c, BSKY_COOKIE, { path: BSKY_COOKIE_PATH })
-  const origin = flow.o
-  if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
-  if (c.req.query('error')) return unauthenticatedResult(c, origin) // the user denied access
+  const out: Flow = { origin: flow.o, r: flow.r ?? null }
+  if (!(await allowedContribOrigins(c.env)).has(out.origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
+  if (c.req.query('error')) return unauthenticatedResult(c, out) // the user denied access
 
   let did: string
   try {
     did = (await auth.callback(new URL(c.req.url).searchParams)).did
   } catch (e) {
     console.warn('bluesky callback failed:', logCause(e))
-    return unauthenticatedResult(c, origin)
+    return unauthenticatedResult(c, out)
   }
-  if (!PLC_DID_RE.test(did)) return unauthenticatedResult(c, origin)
+  if (!PLC_DID_RE.test(did)) return unauthenticatedResult(c, out)
 
   const now = c.get('deps').now()
   const db = getDb(c.env)
@@ -258,7 +286,7 @@ contribRoutes.get('/auth/bsky/callback', async (c) => {
 
   if (contributor && acct) {
     const user = await db.select({ image: user_tab.image }).from(user_tab).where(eq(user_tab.id, acct.userId)).get()
-    return signInContributor(c, origin, now, { id: acct.userId, name: contributor.displayName, image: user?.image ?? null }, null)
+    return signInContributor(c, out, now, { id: acct.userId, name: contributor.displayName, image: user?.image ?? null }, null)
   }
 
   // New contributor: age gate first, so a refused account leaves nothing behind.
@@ -266,11 +294,11 @@ contribRoutes.get('/auth/bsky/callback', async (c) => {
   try {
     created = await getProvider('bluesky')!.accountCreatedAt(did, c.env)
   } catch (e) {
-    if (e instanceof ProviderUnavailable) return ageUnavailableResult(c, origin)
+    if (e instanceof ProviderUnavailable) return ageUnavailableResult(c, out)
     throw e
   }
   const age = ageVerdict(created, now)
-  if (!age.ok) return tooYoungResult(c, origin, age.eligibleAt)
+  if (!age.ok) return tooYoungResult(c, out, age.eligibleAt)
 
   const profile = await fetchBskyProfile(did)
   let userId = acct?.userId
@@ -289,7 +317,28 @@ contribRoutes.get('/auth/bsky/callback', async (c) => {
       userId = acct.userId
     }
   }
-  return signInContributor(c, origin, now, { id: userId, name: profile.displayName, image: profile.image }, profile.handle)
+  return signInContributor(c, out, now, { id: userId, name: profile.displayName, image: profile.image }, profile.handle)
+})
+
+/**
+ * The wiki tab collects a sign-in result here when the popup could not `postMessage` it. The secret `r` was generated by that
+ * tab and travelled only through the popup's own URL and the OAuth state, so only the tab that started the flow can claim the
+ * result; it is single-use and bound to the tab's origin.
+ */
+contribRoutes.post('/auth/poll', contribCors, async (c) => {
+  const read = await readBody(c, 512)
+  if (!read.ok) return read.res
+  const r = typeof read.body.r === 'string' && LOGIN_RESULT_ID_RE.test(read.body.r) ? read.body.r : null
+  if (!r) return apiError(c, 400, 'bad_request', 'Invalid request.')
+  const db = getDb(c.env)
+  const key = await loginResultKey(r)
+  const pending = () => c.json({ pending: true }, 200, { 'Cache-Control': 'no-store' })
+  const row = await db.select({ value: oauth_state_tab.value }).from(oauth_state_tab).where(and(eq(oauth_state_tab.key, key), gt(oauth_state_tab.expiresAt, c.get('deps').now()))).get()
+  if (!row) return pending()
+  const { origin, msg } = JSON.parse(row.value) as { origin: string; msg: ContribAuthMessage }
+  if (origin !== c.req.header('Origin')) return pending()
+  await db.delete(oauth_state_tab).where(eq(oauth_state_tab.key, key)).run()
+  return c.json({ message: msg }, 200, { 'Cache-Control': 'no-store' })
 })
 
 contribRoutes.get('/auth/providers', async (c) => c.json({ providers: PROVIDERS.filter((p) => p.configured(c.env)).map((p) => ({ id: p.id, label: p.label })) }))

@@ -28,6 +28,8 @@ export interface FlowState {
   o: string
   /** Random value also held in the flow cookie: binds the callback to the browser that started the flow. */
   nonce: string
+  /** The wiki tab's hand-back secret (see `LOGIN_RESULT_ID_RE`); absent for an embed that predates it. */
+  r?: string
 }
 
 /** What the sign-in routes need from the OAuth client. Tests inject a fake through `Deps.atproto`. */
@@ -233,7 +235,7 @@ export const createAtprotoAuth: AtprotoAuthFactory = (env) => {
       try {
         const stored = await states.get(stateKey)
         const parsed = stored?.appState ? (JSON.parse(stored.appState) as Partial<FlowState>) : null
-        return parsed && typeof parsed.o === 'string' && typeof parsed.nonce === 'string' ? { o: parsed.o, nonce: parsed.nonce } : null
+        return parsed && typeof parsed.o === 'string' && typeof parsed.nonce === 'string' ? { o: parsed.o, nonce: parsed.nonce, ...(typeof parsed.r === 'string' ? { r: parsed.r } : {}) } : null
       } catch {
         return null
       }

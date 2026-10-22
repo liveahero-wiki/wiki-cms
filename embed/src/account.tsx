@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useRef, useState } from 'preact/hooks'
 import type { Lang } from '../../src/shared/i18n.ts'
 import { CONTRIB_MIN_ACCOUNT_AGE_DAYS } from '../../src/shared/contrib.ts'
 import { rename, signOut } from './contrib-api.ts'
@@ -30,15 +30,19 @@ export function signInErrorText(lang: Lang, e: unknown): string {
 export function SignInGate({ api, lang, onCancel }: { api: string; lang: Lang; onCancel(): void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const attempt = useRef(0)
   const start = () => {
-    if (busy) return
+    // Allowed while busy: when the popup's window is severed from this page we cannot tell it was closed, so the button is how
+    // the user abandons the wait (a new `signIn` rejects the old one, whose outcome is then ignored).
+    const mine = ++attempt.current
     setBusy(true)
     setError(null)
     // `signIn` opens the popup synchronously, inside this click handler.
     // No provider: the popup lets the user choose.
     signIn(api).then(
-      () => setBusy(false), // the Shell notices the stored session and swaps in the form
+      () => attempt.current === mine && setBusy(false), // the Shell notices the stored session and swaps in the form
       (e) => {
+        if (attempt.current !== mine) return
         setBusy(false)
         setError(signInErrorText(lang, e))
       },
@@ -64,7 +68,7 @@ export function SignInGate({ api, lang, onCancel }: { api: string; lang: Lang; o
           <button type="button" class="cms-btn" onClick={onCancel}>
             {t(lang, 'form.cancel')}
           </button>
-          <button type="button" class="cms-btn cms-primary" disabled={busy} onClick={start}>
+          <button type="button" class="cms-btn cms-primary" onClick={start}>
             {t(lang, 'account.signIn')}
           </button>
         </div>
