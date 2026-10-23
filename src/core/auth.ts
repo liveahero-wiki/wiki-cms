@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { eq } from 'drizzle-orm'
+import { DEFAULT_DISPLAY_NAME } from '../config.ts'
 import type { Env } from '../env.ts'
 import { writeAudit } from './audit.ts'
 import { getDb } from './db/client.ts'
@@ -39,7 +40,8 @@ function createAuth(env: Env) {
               mapProfileToUser: (p: { sub: string; name?: string; picture?: string }) => ({
                 email: `google-${p.sub}@users.invalid`,
                 emailVerified: false,
-                name: p.name,
+                // The `name` claim is optional and user_tab.name is NOT NULL (the contributor name is asked for separately).
+                name: p.name?.trim() || DEFAULT_DISPLAY_NAME,
                 image: p.picture,
               }),
             },

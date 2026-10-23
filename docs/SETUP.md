@@ -20,7 +20,7 @@ Everything runs on the Cloudflare **free tier**.
      - `https://wiki-cms.rongjie.workers.dev/api/auth/callback/google`
      - `http://localhost:8787/api/auth/callback/google` (local dev)
 
-   Google is for contributors only; moderators still sign in with Discord. Contributors who sign in with Google skip the 30-day account-age gate (Google exposes no creation date) and are asked for a display name on their first sign-in.
+   Google is for contributors only; moderators still sign in with Discord. Contributors who sign in with Google skip the 30-day account-age gate (Google exposes no creation date) and are asked for a display name on each sign-in until they choose one. Every wiki origin that offers Google must host the sign-in callback page at `/cms-signin/` (see docs/EMBED.md "Contributor sign-in").
 4. **Turnstile widget** (Managed) with hostnames `liveahero-wiki.github.io` and `localhost`. The site key is a public var in `wrangler.jsonc` (`TURNSTILE_SITE_KEY`); the secret is a Worker secret.
 5. Secrets (never commit them):
 

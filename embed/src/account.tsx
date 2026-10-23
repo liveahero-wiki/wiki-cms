@@ -1,4 +1,4 @@
-import { useRef, useState } from 'preact/hooks'
+import { useState } from 'preact/hooks'
 import type { Lang } from '../../src/shared/i18n.ts'
 import { CONTRIB_MIN_ACCOUNT_AGE_DAYS } from '../../src/shared/contrib.ts'
 import { rename, signOut } from './contrib-api.ts'
@@ -30,20 +30,19 @@ export function signInErrorText(lang: Lang, e: unknown): string {
 export function SignInGate({ api, lang, onCancel }: { api: string; lang: Lang; onCancel(): void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const attempt = useRef(0)
   const start = () => {
     // Allowed while busy: a popup whose window is severed from this page (Google's) cannot be seen closing, so the button is
-    // how the user abandons the wait. A new `signIn` rejects the old one, whose outcome is then ignored.
-    const mine = ++attempt.current
+    // how the user abandons the wait. The new `signIn` rejects the old one with `superseded`, which is ignored.
     setBusy(true)
     setError(null)
     // `signIn` shows the provider picker; the popup opens from the click on a provider there.
     signIn(api, { lang }).then(
-      () => attempt.current === mine && setBusy(false), // the Shell notices the stored session and swaps in the form
+      () => setBusy(false), // the Shell notices the stored session and swaps in the form
       (e) => {
-        if (attempt.current !== mine) return
+        const code = e instanceof SignInError ? e.code : null
+        if (code === 'superseded') return
         setBusy(false)
-        setError(signInErrorText(lang, e))
+        if (code !== 'cancelled') setError(signInErrorText(lang, e))
       },
     )
   }

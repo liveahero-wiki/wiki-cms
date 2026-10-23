@@ -1,17 +1,18 @@
-import { and, desc, eq, gt, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { CONTRIB_MIN_ACCOUNT_AGE_DAYS, DAY_MS, DEFAULT_DISPLAY_NAME, GROUP_ID_RE, LOGIN_RESULT_ID_RE, LOGIN_RESULT_TTL_MS, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, SUBMISSIONS_PER_USER_PER_DAY, TYPE_ID_RE } from '../../config.ts'
+import { CONTRIB_MIN_ACCOUNT_AGE_DAYS, DAY_MS, DEFAULT_DISPLAY_NAME, GROUP_ID_RE, MAX_PENDING_PER_TYPE, SUBMISSIONS_PER_IP_PER_DAY, SUBMISSIONS_PER_USER_PER_DAY, TYPE_ID_RE } from '../../config.ts'
 import type { ContribAuthMessage, ContribSubmission, ContribRevision } from '../../shared/api-types.ts'
+import { CONTRIB_SIGNIN_CALLBACK_PATH, CONTRIB_SIGNIN_HASH, CONTRIB_SIGNIN_ID_RE } from '../../shared/contrib.ts'
 import { aiModerate } from '../ai-moderation.ts'
 import { writeAudit } from '../audit.ts'
 import { getAuth } from '../auth.ts'
 import { allowedContribOrigins, contribCors, mintContribToken, normalizeDisplayName, requireContributor } from '../contrib-auth.ts'
 import { getDb } from '../db/client.ts'
-import { account_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, submission_revision_tab, submission_tab, user_tab, verification_tab } from '../db/schema.ts'
+import { account_tab, contrib_token_tab, contributor_tab, invite_tab, moderator_permission_tab, submission_revision_tab, submission_tab, user_tab } from '../db/schema.ts'
 import { notifyNewSubmission } from '../discord-notify.ts'
 import { outcomeOf } from '../external.ts'
 import { getGroup, getRoster } from '../groups.ts'
-import { apiError, sha256Hex, type AppEnv, type Ctx } from '../http.ts'
+import { apiError, type AppEnv, type Ctx } from '../http.ts'
 import { getProvider, PROVIDERS } from '../providers.ts'
 import { checkClient, checkHuman, countIpRecent, countPending, countUserRecent, countryOf, isHoneypot, moderationInput, readBody } from '../submit-guards.ts'
 import { validateSubmission } from '../submission-validate.ts'
@@ -45,22 +46,22 @@ function htmlPage(c: Ctx, status: 200 | 400, title: string, message: string, scr
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
 
-/** Where a sign-in result goes: the wiki tab's origin plus its optional hand-back secret (see `popupResult`). */
+/** Where a sign-in result goes: the wiki tab's origin, plus its attempt id when the result returns by redirect (see `popupResult`). */
 interface Flow {
   origin: string
   r: string | null
 }
 
-const flowOf = (origin: string, r: string | undefined): Flow => ({ origin, r: r && LOGIN_RESULT_ID_RE.test(r) ? r : null })
-
 /** Starts the provider sign-in inside the popup. */
 contribRoutes.get('/auth/start', async (c) => {
   const provider = getProvider(c.req.query('provider') ?? 'discord')
-  const flow = flowOf(c.req.query('o') ?? '', c.req.query('r'))
-  const origin = flow.origin
+  const origin = c.req.query('o') ?? ''
   if (!provider || !provider.configured(c.env)) return htmlPage(c, 400, 'Sign in', 'This sign-in method is not available.', '', {})
   if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
-  const callbackURL = `/api/contrib/auth/done?o=${encodeURIComponent(origin)}${flow.r ? `&r=${flow.r}` : ''}`
+  // Only providers that sever the opener return by redirect; for the others a stray `r` is dropped (postMessage only).
+  const r = c.req.query('r')
+  const flowR = provider.seversOpener && r && CONTRIB_SIGNIN_ID_RE.test(r) ? r : null
+  const callbackURL = `/api/contrib/auth/done?o=${encodeURIComponent(origin)}${flowR ? `&r=${flowR}` : ''}`
   const script = `var d=JSON.parse(document.getElementById('d').textContent);
 fetch('/api/auth/sign-in/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:d.provider,callbackURL:d.callbackURL})})
 .then(function(r){return r.json()}).then(function(j){if(j&&j.url){location.href=j.url}else{throw new Error('no url')}})
@@ -68,15 +69,16 @@ fetch('/api/auth/sign-in/social',{method:'POST',headers:{'Content-Type':'applica
   return htmlPage(c, 200, 'Sign in', `Redirecting to ${escapeHtml(provider.label)}…`, script, { provider: provider.id, callbackURL })
 })
 
-const userAccounts = (c: Ctx, userId: string) =>
+type UserAccount = { providerId: string; accountId: string }
+
+const userAccounts = (c: Ctx, userId: string): Promise<UserAccount[]> =>
   getDb(c.env).select({ providerId: account_tab.providerId, accountId: account_tab.accountId }).from(account_tab).where(eq(account_tab.userId, userId)).all()
 
 /**
  * Returns whether the user's provider account is old enough. Checked only when a user first becomes a contributor,
  * so existing contributors and moderators are never re-checked. Providers without an `ageGate` (Google) always pass.
  */
-async function accountAgeOk(c: Ctx, userId: string, now: number): Promise<{ ok: true } | { ok: false; eligibleAt: number | null }> {
-  const accounts = await userAccounts(c, userId)
+function accountAgeOk(accounts: UserAccount[], now: number): { ok: true } | { ok: false; eligibleAt: number | null } {
   let earliest: number | null = null
   for (const a of accounts) {
     const provider = getProvider(a.providerId)
@@ -90,32 +92,31 @@ async function accountAgeOk(c: Ctx, userId: string, now: number): Promise<{ ok: 
   return { ok: false, eligibleAt: earliest }
 }
 
-const POST_SCRIPT = `var el=document.getElementById('d'),d=JSON.parse(el.textContent),m=document.getElementById('m'),ok=false;el.remove();
-if(window.opener&&d.origin){try{window.opener.postMessage(d.msg,d.origin);ok=true}catch(e){}}
-if(ok||d.polled){m.textContent=d.done;setTimeout(function(){window.close()},400)}else{m.textContent=d.fallback}`
-
-/** Sign-in results waiting for the wiki tab to collect them are `verification_tab` rows keyed by the hash of the tab's secret. */
-const loginResultKey = async (r: string) => `login-result:${await sha256Hex(r)}`
+const POST_SCRIPT = `var el=document.getElementById('d'),d=JSON.parse(el.textContent);el.remove();
+if(window.opener&&d.origin){window.opener.postMessage(d.msg,d.origin);document.getElementById('m').textContent=d.done;setTimeout(function(){window.close()},400)}
+else{document.getElementById('m').textContent=d.fallback}`
 
 /**
- * Hands the result to the wiki tab. Two ways, both used: `postMessage` to `window.opener`, and a short-lived row the tab
- * collects with `POST /auth/poll` using its secret `r`. The second exists because a provider's page can send a
- * `Cross-Origin-Opener-Policy` that severs `window.opener` (Google's sign-in pages do), after which only polling can work.
+ * Hands the result to the wiki tab. Normally by `postMessage` to `window.opener`. A flow with an attempt id `r` (a provider
+ * whose pages sever the opener, see `ProviderDef.seversOpener`) instead redirects the popup to the wiki's callback page with
+ * `#cms-signin=<JSON { r, msg }>`: the result stays in the browser that signed in, and the embed on that page passes it
+ * only to the tab whose attempt id matches. Nothing is stored here, so nobody can collect someone else's result.
  */
-async function popupResult(c: Ctx, flow: Flow, msg: ContribAuthMessage, message: string, status: 200 | 400 = 200) {
+function popupResult(c: Ctx, flow: Flow, msg: ContribAuthMessage, message: string, status: 200 | 400 = 200) {
   if (flow.r) {
-    const now = c.get('deps').now()
-    const value = JSON.stringify({ origin: flow.origin, msg })
-    const identifier = await loginResultKey(flow.r)
-    await getDb(c.env).insert(verification_tab).values({ id: crypto.randomUUID(), identifier, value, expiresAt: new Date(now + LOGIN_RESULT_TTL_MS), createdAt: new Date(now), updatedAt: new Date(now) }).run()
+    const fragment = `${CONTRIB_SIGNIN_HASH}=${encodeURIComponent(JSON.stringify({ r: flow.r, msg }))}`
+    c.header('Cache-Control', 'no-store')
+    c.header('Referrer-Policy', 'no-referrer')
+    return c.redirect(`${flow.origin}${CONTRIB_SIGNIN_CALLBACK_PATH}#${fragment}`, 303)
   }
   const fallback = msg.type === 'cms-contrib' ? 'Signed in, but this window lost its connection to the wiki. Close it and try again from the wiki page.' : message
-  return htmlPage(c, status, 'Sign in', message, POST_SCRIPT, { origin: flow.origin, msg, done: message, fallback, polled: !!flow.r })
+  return htmlPage(c, status, 'Sign in', message, POST_SCRIPT, { origin: flow.origin, msg, done: message, fallback })
 }
 
 /** OAuth callback target. Mints a bearer token and hands it to the wiki tab that opened the popup. */
 contribRoutes.get('/auth/done', async (c) => {
-  const flow = flowOf(c.req.query('o') ?? '', c.req.query('r'))
+  const r = c.req.query('r')
+  const flow: Flow = { origin: c.req.query('o') ?? '', r: r && CONTRIB_SIGNIN_ID_RE.test(r) ? r : null }
   const origin = flow.origin
   if (!(await allowedContribOrigins(c.env)).has(origin)) return htmlPage(c, 400, 'Sign in', 'Unknown site.', '', {})
   const now = c.get('deps').now()
@@ -123,13 +124,16 @@ contribRoutes.get('/auth/done', async (c) => {
   const session = await getAuth(c.env).api.getSession({ headers: c.req.raw.headers })
   if (!session) return popupResult(c, flow, { type: 'cms-contrib-error', code: 'unauthenticated' }, 'Sign-in did not complete. You can close this window and try again.', 400)
   const userId = session.user.id
+  let accounts: UserAccount[] | undefined
+  const accountsOf = async () => (accounts ??= await userAccounts(c, userId))
+  // Providers that return a real name (Google) do not supply the display name: the wiki asks for one after sign-in.
+  const promptsForName = async () => (await accountsOf()).some((a) => getProvider(a.providerId)?.promptDisplayName)
 
   let profile = await db.select().from(contributor_tab).where(eq(contributor_tab.userId, userId)).get()
-  let needsDisplayName = false
   if (!profile) {
     const isModerator = !!(await db.select({ t: moderator_permission_tab.type }).from(moderator_permission_tab).where(eq(moderator_permission_tab.userId, userId)).get())
     if (!isModerator) {
-      const age = await accountAgeOk(c, userId, now)
+      const age = accountAgeOk(await accountsOf(), now)
       if (!age.ok) {
         // Drop the account BetterAuth just created for this sign-in (nothing else references it).
         const hasInvite = !!(await db.select({ t: invite_tab.tokenHash }).from(invite_tab).where(eq(invite_tab.usedBy, userId)).get())
@@ -140,43 +144,17 @@ contribRoutes.get('/auth/done', async (c) => {
         return popupResult(c, flow, { type: 'cms-contrib-error', code: 'account_too_young', eligibleAt: age.eligibleAt }, `Your account must be at least ${days} days old to contribute.${when}`, 400)
       }
     }
-    // Providers that return a real name (Google) do not supply the display name: the wiki asks for one after sign-in.
-    needsDisplayName = (await userAccounts(c, userId)).some((a) => getProvider(a.providerId)?.promptDisplayName)
-    const displayName = (!needsDisplayName && normalizeDisplayName(session.user.name)) || DEFAULT_DISPLAY_NAME
+    const displayName = (!(await promptsForName()) && normalizeDisplayName(session.user.name)) || DEFAULT_DISPLAY_NAME
     await db.insert(contributor_tab).values({ userId, displayName, createdAt: now }).onConflictDoNothing().run()
     await writeAudit(db, { actor: userId, action: 'contrib.create' }, now)
     profile = (await db.select().from(contributor_tab).where(eq(contributor_tab.userId, userId)).get())!
   }
+  // Asked on every sign-in until a name is chosen, not only on the first: that first result may never have reached the wiki
+  // (popup abandoned, another browser), and the flag otherwise lives only in the wiki tab's storage.
+  const needsDisplayName = profile.displayName === DEFAULT_DISPLAY_NAME && (await promptsForName())
   const token = await mintContribToken(c.env, userId, origin, now)
   const user = { id: userId, displayName: profile.displayName, image: session.user.image ?? null }
   return popupResult(c, flow, { type: 'cms-contrib', token, user, ...(needsDisplayName ? { needsDisplayName: true as const } : {}) }, 'Signed in. You can close this window.')
-})
-
-/**
- * The wiki tab collects a sign-in result here when the popup could not `postMessage` it. The secret `r` was made by that tab
- * and travelled only through the popup's own URL, so only the tab that started the flow can claim the result; it is
- * single-use and bound to the tab's origin.
- */
-contribRoutes.post('/auth/poll', contribCors, async (c) => {
-  const read = await readBody(c, 512)
-  if (!read.ok) return read.res
-  const r = typeof read.body.r === 'string' && LOGIN_RESULT_ID_RE.test(read.body.r) ? read.body.r : null
-  if (!r) return apiError(c, 400, 'bad_request', 'Invalid request.')
-  const db = getDb(c.env)
-  const identifier = await loginResultKey(r)
-  const pending = () => c.json({ pending: true }, 200, { 'Cache-Control': 'no-store' })
-  const row = await db
-    .select({ id: verification_tab.id, value: verification_tab.value })
-    .from(verification_tab)
-    .where(and(eq(verification_tab.identifier, identifier), gt(verification_tab.expiresAt, new Date(c.get('deps').now()))))
-    .get()
-  if (!row) return pending()
-  const { origin, msg } = JSON.parse(row.value) as { origin: string; msg: ContribAuthMessage }
-  if (origin !== c.req.header('Origin')) return pending()
-  // Claim it atomically: of two concurrent polls only the one whose delete removes the row gets the token.
-  const claimed = await db.delete(verification_tab).where(eq(verification_tab.id, row.id)).run()
-  if (!claimed.meta.changes) return pending()
-  return c.json({ message: msg }, 200, { 'Cache-Control': 'no-store' })
 })
 
 /** The configured sign-in providers, for the embed's picker (CORS: allowed wiki origins only). */

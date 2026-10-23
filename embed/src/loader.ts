@@ -1,6 +1,6 @@
 import { isLang, langFromTag, resolveUiLang } from '../../src/shared/i18n.ts'
 import type { ContribSubmission } from '../../src/shared/api-types.ts'
-import { currentSession, onSessionChange, signIn, type SignInOptions, type StoredSession } from './contrib-session.ts'
+import { currentSession, onSessionChange, receiveSignInRedirect, signIn, type SignInOptions, type StoredSession } from './contrib-session.ts'
 import { normalizeFormOptions } from './form-api.ts'
 import { loaderStrings } from './i18n/loader.ts'
 import type { ListOpts } from './shared.ts'
@@ -16,7 +16,8 @@ interface CmsContrib {
   /**
    * Shows the provider picker (last used provider first) and opens the sign-in popup for the chosen one; with
    * `options.provider` the popup opens at once, so call it directly from a click handler. A string is `{ provider }`.
-   * Rejects with a `SignInError` (`code`, `eligibleAt`, `provider`).
+   * Rejects with a `SignInError` (`code`, `eligibleAt`, `provider`); ignore `cancelled` (picker dismissed) and
+   * `superseded` (a newer `signIn` took over the wait and owns the busy state).
    */
   signIn(api?: string, options?: string | SignInOptions): Promise<StoredSession>
   signOut(api?: string): Promise<void>
@@ -122,7 +123,10 @@ function createScan(): () => void {
 }
 
 try {
-  if (w.cmsEmbed) {
+  // On the wiki's sign-in callback page: pass the popup's result on to the waiting tab (and do nothing else here).
+  if (receiveSignInRedirect()) {
+    /* the popup closes itself */
+  } else if (w.cmsEmbed) {
     // Script included twice (or an older loader is present): re-scan, and make sure `openForm` exists.
     w.cmsEmbed.openForm ??= openForm
     w.cmsEmbed.contrib ??= contrib

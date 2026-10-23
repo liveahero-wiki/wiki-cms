@@ -149,8 +149,6 @@ async function serveFile(res, file, extra = {}) {
   }
 }
 
-const results = new Map() // sign-in results waiting to be polled, by the tab's secret
-
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
   const path = url.pathname
@@ -160,6 +158,10 @@ createServer(async (req, res) => {
     // Static
     if (req.method === 'GET' && (path === '/' || path === '/dev.html')) return serveFile(res, join(here, 'dev.html'))
     if (req.method === 'GET' && path === '/dev-plugin.js') return serveFile(res, join(here, 'dev-plugin.js'))
+    // The wiki's sign-in callback page (CONTRIB_SIGNIN_CALLBACK_PATH): a bare page that loads the embed loader.
+    if (req.method === 'GET' && path === '/cms-signin/') {
+      return send(res, 200, '<!doctype html><meta charset="utf-8"><title>Sign in</title><p>Signing in… You can close this window.</p><script type="module" src="/embed/v1.js"></script>', { 'Content-Type': 'text/html; charset=utf-8' })
+    }
     if (req.method === 'GET' && path.startsWith('/embed/')) {
       const rel = normalize(path.slice('/embed/'.length)).replace(/^(\.\.[\\/])+/, '')
       return serveFile(res, join(distEmbed, rel))
@@ -232,19 +234,14 @@ createServer(async (req, res) => {
       const o = url.searchParams.get('o') ?? ''
       const r = url.searchParams.get('r')
       const msg = { type: 'cms-contrib', token: 'cct_mock', user: { id: `mock-${provider}`, displayName: provider === 'google' ? 'Contributor' : 'Mock Discord', image: null }, ...(provider === 'google' ? { needsDisplayName: true } : {}) }
-      // Google's pages sever window.opener, so its result is only collected by polling (the mock never postMessages for it).
-      if (r) results.set(r, msg)
-      const post = r ? '' : `(opener || parent).postMessage(${JSON.stringify(msg)}, ${JSON.stringify(o)}); if (opener) setTimeout(() => close(), 300)`
+      // Google's pages sever window.opener, so its result goes back through the wiki's callback page, like /auth/done does.
+      if (r) {
+        res.writeHead(303, { Location: `${o}/cms-signin/#cms-signin=${encodeURIComponent(JSON.stringify({ r, msg }))}` })
+        return res.end()
+      }
+      const post = `(opener || parent).postMessage(${JSON.stringify(msg)}, ${JSON.stringify(o)}); if (opener) setTimeout(() => close(), 300)`
       const html = `<!doctype html><p>Signed in with ${provider} (mock).</p><script>${post}</script>`
       return send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8' })
-    }
-    if (path === '/api/contrib/auth/poll') {
-      const cors = { 'Access-Control-Allow-Origin': origin ?? '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
-      if (req.method === 'OPTIONS') return send(res, 204, '', cors)
-      const { r } = JSON.parse(await readBody(req))
-      const message = results.get(r)
-      results.delete(r)
-      return send(res, 200, message ? { message } : { pending: true }, cors)
     }
     if (path === '/api/contrib/me') {
       const cors = { 'Access-Control-Allow-Origin': origin ?? '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS' }

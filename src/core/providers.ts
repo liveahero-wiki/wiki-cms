@@ -14,6 +14,11 @@ export interface ProviderDef {
   accountCreatedAt(accountId: string): number | null
   /** The provider returns a real name, so a new contributor is asked for a display name instead of taking the profile name. */
   promptDisplayName: boolean
+  /**
+   * The provider's sign-in pages send a `Cross-Origin-Opener-Policy` that severs the popup's `window.opener`, so the result
+   * goes back by redirecting the popup to the wiki's callback page instead of `postMessage` (embed: `SEVERS_OPENER`).
+   */
+  seversOpener: boolean
 }
 
 const DISCORD_EPOCH = 1420070400000n
@@ -33,6 +38,7 @@ export const PROVIDERS: ProviderDef[] = [
     ageGate: true,
     accountCreatedAt: discordCreatedAt,
     promptDisplayName: false,
+    seversOpener: false,
   },
   {
     id: 'google',
@@ -41,6 +47,7 @@ export const PROVIDERS: ProviderDef[] = [
     ageGate: false,
     accountCreatedAt: () => null,
     promptDisplayName: true,
+    seversOpener: true,
   },
 ]
 
