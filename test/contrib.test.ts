@@ -140,6 +140,90 @@ describe('sign-in popup and the account-age gate', () => {
     expect((await dataOf(res)).msg.code).toBe('unauthenticated')
   })
 
+  it('lists the configured providers for allowed origins only', async () => {
+    const ok = await h.fetch('/api/contrib/auth/providers', { headers: { Origin: ORIGIN } })
+    expect(ok.status).toBe(200)
+    expect(ok.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN)
+    expect((await json(ok)).providers).toEqual([
+      { id: 'discord', label: 'Discord' },
+      { id: 'google', label: 'Google' },
+    ])
+    expect((await h.fetch('/api/contrib/auth/providers', { headers: { Origin: 'https://evil.example' } })).status).toBe(403)
+    expect((await h.fetch('/api/contrib/auth/providers')).status).toBe(403)
+  })
+
+  it('start: renders for Google', async () => {
+    expect((await h.fetch(`/api/contrib/auth/start?provider=google&o=${encodeURIComponent(ORIGIN)}`)).status).toBe(200)
+  })
+
+  it('a new Google contributor skips the age gate, is created as "Contributor" and is asked for a name', async () => {
+    const res = await done(await sessionCookie('g1', { googleId: '112233445566778899001' }))
+    expect(res.status).toBe(200)
+    const d = await dataOf(res)
+    expect(d.msg.type).toBe('cms-contrib')
+    expect(d.msg.needsDisplayName).toBe(true)
+    expect(d.msg.user.displayName).toBe('Contributor') // never the Google profile name ("User g1")
+    expect((await json(await contribApi(h, d.msg.token, 'GET', '/me'))).user.displayName).toBe('Contributor')
+    const renamed = await contribApi(h, d.msg.token, 'PATCH', '/me', { displayName: 'Hero Fan' })
+    expect((await json(renamed)).user.displayName).toBe('Hero Fan')
+    // Signing in again is not a first sign-in: no prompt, the chosen name is kept.
+    const again = await dataOf(await done(await sessionCookie('g1')))
+    expect(again.msg.needsDisplayName).toBeUndefined()
+    expect(again.msg.user.displayName).toBe('Hero Fan')
+  })
+
+  it('a new Discord contributor keeps the profile name and is not asked for one', async () => {
+    const d = await dataOf(await done(await sessionCookie('dd', { discordId: snowflakeAt(Date.now() - 90 * DAY) })))
+    expect(d.msg.needsDisplayName).toBeUndefined()
+    expect(d.msg.user.displayName).toBe('User dd')
+  })
+
+  describe('hand-back by polling (the provider page severs window.opener)', () => {
+    const R = 'AbCdEfGhIjKlMnOpQrStUvWx_-0123'
+    const doneR = (cookie: string | null, r = R) => h.fetch(`/api/contrib/auth/done?o=${encodeURIComponent(ORIGIN)}&r=${r}`, { headers: cookie ? { Cookie: cookie } : {} })
+    const poll = (r: string, origin: string | null = ORIGIN) =>
+      h.fetch('/api/contrib/auth/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) },
+        body: JSON.stringify({ r }),
+      })
+
+    it('start: the secret rides along in the callback URL, a malformed one is dropped', async () => {
+      const data = async (r: string) => dataOf(await h.fetch(`/api/contrib/auth/start?provider=google&o=${encodeURIComponent(ORIGIN)}&r=${r}`))
+      expect((await data(R)).callbackURL).toContain(`&r=${R}`)
+      expect((await data('short')).callbackURL).not.toContain('&r=')
+    })
+
+    it('stores the result under the secret, and only the tab with that secret and origin collects it, once', async () => {
+      const res = await doneR(await sessionCookie('p1', { googleId: '1122334455' }))
+      const page = await dataOf(res.clone())
+      expect(page.polled).toBe(true)
+      expect((await json(await poll('Z'.repeat(30)))).pending).toBe(true) // another tab's secret
+      expect((await poll(R, 'https://evil.example')).status).toBe(403) // not a wiki origin: refused, and the result is not consumed
+      const got = await json(await poll(R))
+      expect(got.message.type).toBe('cms-contrib')
+      expect(got.message.needsDisplayName).toBe(true)
+      expect((await json(await contribApi(h, got.message.token, 'GET', '/me'))).user.id).toBe('p1')
+      expect((await json(await poll(R))).pending).toBe(true) // single use
+    })
+
+    it('hands errors back the same way, and never stores a result without a secret', async () => {
+      await doneR(null)
+      expect((await json(await poll(R))).message.code).toBe('unauthenticated')
+      await done(await sessionCookie('p2', { googleId: '99887766' }))
+      expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM verification_tab WHERE identifier LIKE 'login-result:%'").first<{ n: number }>())!.n).toBe(0)
+    })
+
+    it('polling needs an allowed origin and a well-formed secret; expired results are gone', async () => {
+      expect((await poll(R, null)).status).toBe(403)
+      expect((await poll(R, 'https://evil.example')).status).toBe(403)
+      expect((await poll('nope')).status).toBe(400)
+      await doneR(await sessionCookie('p3', { googleId: '5544332211' }))
+      clock += 6 * 60 * 1000
+      expect((await json(await poll(R))).pending).toBe(true)
+    })
+  })
+
   it('does not re-check existing contributors or moderators', async () => {
     const young = snowflakeAt(Date.now() - 2 * DAY)
     await contribLogin('existing')

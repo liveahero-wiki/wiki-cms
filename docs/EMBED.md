@@ -122,13 +122,13 @@ window.cmsEmbed.openForm(options): Promise<void>
 
 ## Contributor accounts
 
-When the type has `submitAuth: 'account'` (`GET /api/v1/types/:type`), the form shows a **sign-in gate** (popup, Discord) instead of the form until a contributor session exists, and posts through the bearer-only `/api/contrib/*` API. The session (a bearer token) is stored in the **host page's** `localStorage` under `cms-contrib:<api origin>` and a `cms:contrib` window event (`detail: { api }`) fires when it changes; both are part of the contract so a host can show who is signed in without loading the embed.
+When the type has `submitAuth: 'account'` (`GET /api/v1/types/:type`), the form shows a **sign-in gate** (provider picker, then a popup: Discord or Google) instead of the form until a contributor session exists, and posts through the bearer-only `/api/contrib/*` API. The session (a bearer token) is stored in the **host page's** `localStorage` under `cms-contrib:<api origin>` and a `cms:contrib` window event (`detail: { api }`) fires when it changes; both are part of the contract so a host can show who is signed in without loading the embed.
 
 `v1.js` also exposes `window.cmsEmbed.contrib` (lazy: only `session`, `signIn` and `onChange` are in the tiny loader; the rest loads `contrib-api` on first use):
 
 ```ts
 contrib.session(api?): { token, user } | null          // sync, no network
-contrib.signIn(api?, provider?): Promise<session>      // call inside a click handler (popup); rejects with SignInError { code, eligibleAt }
+contrib.signIn(api?, options?): Promise<session>       // options: { provider?, lang? } (a string is { provider }); rejects with SignInError { code, eligibleAt, provider }
 contrib.signOut(api?): Promise<void>
 contrib.mine(type?, api?): Promise<ContribSubmission[]> // own submissions, any state; `revision` = pending/rejected edit
 contrib.rename(displayName, api?)
@@ -136,7 +136,13 @@ contrib.withdrawRevision(submissionId, api?)
 contrib.onChange(cb, api?): () => void
 ```
 
-`SignInError.code`: `popup_blocked`, `closed`, `account_too_young` (+ `eligibleAt`), `unauthenticated`, `unavailable`.
+`signIn` without `provider` shows a **provider picker** (a modal `<dialog>` in a shadow root, localized by `lang`; the last provider that worked in this browser is listed first, focused and badged "Last used") and opens the popup from the click on a provider button, so it need not be called synchronously inside a click. With `provider` it opens the popup at once and **must** be called directly from a click handler. Dismissing the picker rejects with `closed`.
+
+After a first sign-in with a provider that returns a real name (Google) the session has `needsDisplayName: true` and `signIn` shows a display-name dialog before it resolves; "Later" or Esc keeps the name "Contributor" (and the form asks again when it next opens). `rename` clears the flag. The last provider is stored under `cms-contrib-provider:<api origin>` in the host page's `localStorage`.
+
+A Google popup cannot be watched for closing (its pages sever `window.opener`; see ARCHITECTURE.md "Contributor accounts"), so its sign-in ends when the result arrives, after 10 minutes, or when `signIn` is called again (the earlier call then rejects with `closed`). Do not disable your sign-in button while `signIn` is pending.
+
+`SignInError.code`: `popup_blocked`, `closed`, `account_too_young` (+ `eligibleAt`), `unauthenticated`, `unavailable`. `SignInError.provider` is the provider whose popup failed, when known.
 
 **Editing:** pass `edit: { id, version, initial }` to `openForm` (take them from a `ContribSubmission`: its `id`, `version`, and the content of its pending/rejected `revision` or of the submission itself). The form is prefilled, keeps its unsent draft under `cms-draft-edit:<id>:<version>` (so signing in again after an expired session does not lose the work), and saves with `PUT`. For a published submission the result is "queued for moderator review; the current version stays visible".
 

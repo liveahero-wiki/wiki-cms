@@ -69,7 +69,7 @@ pnpm build                # admin + embed -> dist/public
 pnpm dev                  # wrangler dev on http://localhost:8787
 ```
 
-Local secrets go in `.dev.vars` (gitignored): `BETTER_AUTH_SECRET`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY`, `CLI_TOKEN`, `PUBLIC_URL`. Use Cloudflare's [Turnstile test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) locally.
+Local secrets go in `.dev.vars` (gitignored): `BETTER_AUTH_SECRET`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, optionally `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY`, `CLI_TOKEN`, `PUBLIC_URL`. Use Cloudflare's [Turnstile test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) locally.
 
 Register the type against a locally running wiki (see the wiki repo's `docs/CMS.md` for its side) and create the first moderator invite:
 

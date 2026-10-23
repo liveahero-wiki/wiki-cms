@@ -714,6 +714,10 @@ function Shell({ args, dialog, dispose }: { args: FormArgs; dialog: HTMLDialogEl
   const closeFn = useRef<() => void>(plainClose)
   const [session, setSession] = useState<StoredSession | null>(() => currentSession(args.opts.api))
   useEffect(() => onSessionChange(args.opts.api, () => setSession(currentSession(args.opts.api))), [])
+  // A contributor who postponed choosing a display name (first Google sign-in) is asked again each time the form opens.
+  useEffect(() => {
+    if (session?.needsDisplayName) void import('./dialogs.ts').then((d) => d.askDisplayName({ api: args.opts.api, lang: L }))
+  }, [])
 
   useEffect(() => {
     let dead = false

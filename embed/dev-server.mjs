@@ -149,6 +149,8 @@ async function serveFile(res, file, extra = {}) {
   }
 }
 
+const results = new Map() // sign-in results waiting to be polled, by the tab's secret
+
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
   const path = url.pathname
@@ -219,6 +221,38 @@ createServer(async (req, res) => {
         if (expl.includes('TURN') || !body.turnstileToken) return apiError(res, 403, 'turnstile_failed', 'Verification failed. Please try again.', undefined, cors)
         console.log('  accepted submission', JSON.stringify({ title: body.title, lang: body.lang, tags: body.tags, demoUrl: body.demoUrl }))
         return send(res, 202, { id: crypto.randomUUID(), state: 'pending' }, cors)
+      }
+    }
+    // Contributor sign-in mock: the picker's provider list, a popup that "signs in" at once (Google asks for a name afterwards), rename.
+    if (req.method === 'GET' && path === '/api/contrib/auth/providers') {
+      return send(res, 200, { providers: [{ id: 'discord', label: 'Discord' }, { id: 'google', label: 'Google' }] }, { 'Access-Control-Allow-Origin': origin ?? '*' })
+    }
+    if (req.method === 'GET' && path === '/api/contrib/auth/start') {
+      const provider = url.searchParams.get('provider')
+      const o = url.searchParams.get('o') ?? ''
+      const r = url.searchParams.get('r')
+      const msg = { type: 'cms-contrib', token: 'cct_mock', user: { id: `mock-${provider}`, displayName: provider === 'google' ? 'Contributor' : 'Mock Discord', image: null }, ...(provider === 'google' ? { needsDisplayName: true } : {}) }
+      // Google's pages sever window.opener, so its result is only collected by polling (the mock never postMessages for it).
+      if (r) results.set(r, msg)
+      const post = r ? '' : `(opener || parent).postMessage(${JSON.stringify(msg)}, ${JSON.stringify(o)}); if (opener) setTimeout(() => close(), 300)`
+      const html = `<!doctype html><p>Signed in with ${provider} (mock).</p><script>${post}</script>`
+      return send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8' })
+    }
+    if (path === '/api/contrib/auth/poll') {
+      const cors = { 'Access-Control-Allow-Origin': origin ?? '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
+      if (req.method === 'OPTIONS') return send(res, 204, '', cors)
+      const { r } = JSON.parse(await readBody(req))
+      const message = results.get(r)
+      results.delete(r)
+      return send(res, 200, message ? { message } : { pending: true }, cors)
+    }
+    if (path === '/api/contrib/me') {
+      const cors = { 'Access-Control-Allow-Origin': origin ?? '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS' }
+      if (req.method === 'OPTIONS') return send(res, 204, '', cors)
+      if (req.method === 'PATCH') {
+        const name = String(JSON.parse(await readBody(req)).displayName ?? '').trim()
+        if ([...name].length < 2 || [...name].length > 32) return apiError(res, 400, 'validation_failed', 'The display name must be 2-32 characters.', undefined, cors)
+        return send(res, 200, { user: { id: 'mock-google', displayName: name, image: null } }, cors)
       }
     }
     send(res, 404, 'Not found', { 'Access-Control-Allow-Origin': '*' })

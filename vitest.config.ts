@@ -20,6 +20,8 @@ export default defineConfig(async () => {
                   BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
                   DISCORD_CLIENT_ID: 'test-client-id',
                   DISCORD_CLIENT_SECRET: 'test-client-secret',
+                  GOOGLE_CLIENT_ID: 'test-google-client-id',
+                  GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
                   TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
                   TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
                   CLI_TOKEN: 'test-cli-token',

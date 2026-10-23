@@ -57,6 +57,14 @@
   <p id="of-out" role="status"></p>
   <div id="of-host"></div>
 
+  <h2>6. Contributor sign-in (<code>cmsEmbed.contrib.signIn</code>, mocked providers)</h2>
+  <p>
+    <button id="si-open" type="button">Sign in (picker)</button>
+    <button id="si-discord" type="button">Sign in with Discord (no picker)</button>
+    <button id="si-out" type="button">Forget session and last provider</button>
+  </p>
+  <p id="si-out-text" role="status"></p>
+
   <script type="module" src="/embed/v1.js"></script>
   <script type="module" src="/embed/v1.js"></script><!-- included twice on purpose: global guard -->
   <script>
@@ -89,6 +97,20 @@
         const lang = document.getElementById('lang').value || undefined
         await window.cmsEmbed.openForm({ host: document.getElementById('of-host'), type: 'lah-team-formation', group: 'all', plugin: '/dev-plugin.js', groupOptions: blob.groupOptions, lang })
       } catch (e) { ofOut.textContent = 'rejected: ' + e.message }
+    }
+    const siOut = document.getElementById('si-out-text')
+    const signIn = (options) => async () => {
+      siOut.textContent = ''
+      try {
+        const s = await window.cmsEmbed.contrib.signIn(undefined, { ...options, lang: document.getElementById('lang').value || undefined })
+        siOut.textContent = 'signed in as ' + s.user.displayName + (s.needsDisplayName ? ' (name still pending)' : '')
+      } catch (e) { siOut.textContent = 'rejected: ' + (e.code ?? e.message) }
+    }
+    document.getElementById('si-open').onclick = signIn({})
+    document.getElementById('si-discord').onclick = signIn({ provider: 'discord' })
+    document.getElementById('si-out').onclick = () => {
+      for (const k of Object.keys(localStorage)) if (k.startsWith('cms-contrib')) localStorage.removeItem(k)
+      siOut.textContent = 'cleared'
     }
     document.getElementById('of-bad').onclick = async () => {
       ofOut.textContent = ''

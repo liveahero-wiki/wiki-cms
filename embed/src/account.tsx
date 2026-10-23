@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useRef, useState } from 'preact/hooks'
 import type { Lang } from '../../src/shared/i18n.ts'
 import { CONTRIB_MIN_ACCOUNT_AGE_DAYS } from '../../src/shared/contrib.ts'
 import { rename, signOut } from './contrib-api.ts'
@@ -6,7 +6,7 @@ import { SignInError, signIn, type StoredSession } from './contrib-session.ts'
 import { apiErrorText, t } from './i18n/t.ts'
 import { ApiError } from './shared.ts'
 
-const PROVIDER = { id: 'discord', label: 'Discord' }
+const PROVIDER_LABELS: Record<string, string> = { discord: 'Discord', google: 'Google' }
 
 /** Localized text for a failed sign-in popup. */
 export function signInErrorText(lang: Lang, e: unknown): string {
@@ -17,7 +17,7 @@ export function signInErrorText(lang: Lang, e: unknown): string {
     case 'closed':
       return t(lang, 'account.closed')
     case 'account_too_young': {
-      const params = { provider: PROVIDER.label, days: CONTRIB_MIN_ACCOUNT_AGE_DAYS }
+      const params = { provider: (e.provider && PROVIDER_LABELS[e.provider]) || e.provider || '', days: CONTRIB_MIN_ACCOUNT_AGE_DAYS }
       if (!e.eligibleAt) return t(lang, 'account.tooYoungNoDate', params)
       return t(lang, 'account.tooYoung', { ...params, date: new Date(e.eligibleAt).toLocaleDateString(lang) })
     }
@@ -30,14 +30,18 @@ export function signInErrorText(lang: Lang, e: unknown): string {
 export function SignInGate({ api, lang, onCancel }: { api: string; lang: Lang; onCancel(): void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const attempt = useRef(0)
   const start = () => {
-    if (busy) return
+    // Allowed while busy: a popup whose window is severed from this page (Google's) cannot be seen closing, so the button is
+    // how the user abandons the wait. A new `signIn` rejects the old one, whose outcome is then ignored.
+    const mine = ++attempt.current
     setBusy(true)
     setError(null)
-    // `signIn` opens the popup synchronously, inside this click handler.
-    signIn(api, PROVIDER.id).then(
-      () => setBusy(false), // the Shell notices the stored session and swaps in the form
+    // `signIn` shows the provider picker; the popup opens from the click on a provider there.
+    signIn(api, { lang }).then(
+      () => attempt.current === mine && setBusy(false), // the Shell notices the stored session and swaps in the form
       (e) => {
+        if (attempt.current !== mine) return
         setBusy(false)
         setError(signInErrorText(lang, e))
       },
@@ -63,8 +67,8 @@ export function SignInGate({ api, lang, onCancel }: { api: string; lang: Lang; o
           <button type="button" class="cms-btn" onClick={onCancel}>
             {t(lang, 'form.cancel')}
           </button>
-          <button type="button" class="cms-btn cms-primary" disabled={busy} onClick={start}>
-            {t(lang, 'account.signInWith', { provider: PROVIDER.label })}
+          <button type="button" class="cms-btn cms-primary" onClick={start}>
+            {t(lang, 'account.signIn')}
           </button>
         </div>
       </div>

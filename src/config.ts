@@ -32,6 +32,14 @@ export { CONTRIB_MIN_ACCOUNT_AGE_DAYS } from './shared/contrib.ts'
 export const SUBMISSIONS_PER_USER_PER_DAY = 10
 /** Contributor accounts with no submissions, no live token and no sign-in for this long are pruned. */
 export const CONTRIB_IDLE_PRUNE_DAYS = 180
+/** Display name of a contributor who has not picked one (profile name missing, or the provider asks for a name after sign-in). */
+export const DEFAULT_DISPLAY_NAME = 'Contributor'
 export const DISPLAY_NAME_MIN = 2
 export const DISPLAY_NAME_MAX = 32
 export const REJECT_REASON_MAX = 500
+
+// ---- Sign-in popup hand-back ----
+/** The wiki tab's one-time secret (`r`) for collecting a sign-in result when `window.opener` was severed (COOP of the provider's page). */
+export const LOGIN_RESULT_ID_RE = /^[A-Za-z0-9_-]{22,64}$/
+/** How long an uncollected result waits for the wiki tab to poll for it. */
+export const LOGIN_RESULT_TTL_MS = 5 * 60 * 1000

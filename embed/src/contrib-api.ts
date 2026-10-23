@@ -54,7 +54,7 @@ export async function withdrawRevision(api: string, id: string): Promise<void> {
 export async function rename(api: string, displayName: string): Promise<ContribUser> {
   const { user } = await call<ContribMeResponse>(api, '/me', { method: 'PATCH', body: { displayName } })
   const s = currentSession(api)
-  if (s) writeSession(api, { ...s, user })
+  if (s) writeSession(api, { token: s.token, user }) // also settles a pending `needsDisplayName`
   return user
 }
 

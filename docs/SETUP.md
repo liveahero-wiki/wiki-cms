@@ -14,6 +14,13 @@ Everything runs on the Cloudflare **free tier**.
    - `http://localhost:8787/api/auth/callback/discord` (local dev)
 
    The Worker only requests the `identify` scope (never `email`).
+3a. **Google OAuth client** (optional; unset = Google is not offered). Google Cloud Console → APIs & Services:
+   - OAuth consent screen: user type External, publishing status **In production** (a "Testing" app limits sign-in to listed test users). Only the non-sensitive `openid` and `profile` scopes are used, so no Google verification is needed.
+   - Credentials → OAuth client ID → Web application, authorized redirect URIs:
+     - `https://wiki-cms.rongjie.workers.dev/api/auth/callback/google`
+     - `http://localhost:8787/api/auth/callback/google` (local dev)
+
+   Google is for contributors only; moderators still sign in with Discord. Contributors who sign in with Google skip the 30-day account-age gate (Google exposes no creation date) and are asked for a display name on their first sign-in.
 4. **Turnstile widget** (Managed) with hostnames `liveahero-wiki.github.io` and `localhost`. The site key is a public var in `wrangler.jsonc` (`TURNSTILE_SITE_KEY`); the secret is a Worker secret.
 5. Secrets (never commit them):
 
@@ -21,6 +28,8 @@ Everything runs on the Cloudflare **free tier**.
    pnpm exec wrangler secret put BETTER_AUTH_SECRET     # e.g. `openssl rand -base64 32`
    pnpm exec wrangler secret put DISCORD_CLIENT_ID
    pnpm exec wrangler secret put DISCORD_CLIENT_SECRET
+   pnpm exec wrangler secret put GOOGLE_CLIENT_ID       # optional, see 3a
+   pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET   # optional, see 3a
    pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
    pnpm exec wrangler secret put CLI_TOKEN              # bearer token for `cms republish`
    ```

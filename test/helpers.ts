@@ -158,7 +158,7 @@ async function hmacSigned(value: string, secret: string) {
 }
 
 /** Creates a user (+ optional permissions, Discord account) and a real BetterAuth session; returns the Cookie header value. */
-export async function sessionCookie(userId: string, opts: { types?: string[]; discordId?: string } = {}): Promise<string> {
+export async function sessionCookie(userId: string, opts: { types?: string[]; discordId?: string; googleId?: string } = {}): Promise<string> {
   const now = Date.now()
   await env.DB.prepare('INSERT OR IGNORE INTO user_tab (id,name,email,email_verified,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(userId, `User ${userId}`, `${userId}@users.invalid`, 0, now, now).run()
   for (const t of opts.types ?? []) {
@@ -166,6 +166,9 @@ export async function sessionCookie(userId: string, opts: { types?: string[]; di
   }
   if (opts.discordId) {
     await env.DB.prepare('INSERT OR IGNORE INTO account_tab (id,account_id,provider_id,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(`acc-${userId}`, opts.discordId, 'discord', userId, now, now).run()
+  }
+  if (opts.googleId) {
+    await env.DB.prepare('INSERT OR IGNORE INTO account_tab (id,account_id,provider_id,user_id,created_at,updated_at) VALUES (?,?,?,?,?,?)').bind(`gacc-${userId}`, opts.googleId, 'google', userId, now, now).run()
   }
   const token = `tok-${userId}-${crypto.randomUUID()}`
   await env.DB.prepare('INSERT INTO session_tab (id,expires_at,token,created_at,updated_at,user_id) VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(), now + DAY, token, now, now, userId).run()

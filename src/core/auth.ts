@@ -28,6 +28,23 @@ function createAuth(env: Env) {
     verification: { modelName: 'verification_tab' },
     emailAndPassword: { enabled: false },
     socialProviders: {
+      ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+        ? {
+            google: {
+              clientId: env.GOOGLE_CLIENT_ID,
+              clientSecret: env.GOOGLE_CLIENT_SECRET,
+              // `openid profile` only: never request the email scope.
+              scope: ['openid', 'profile'],
+              disableDefaultScope: true,
+              mapProfileToUser: (p: { sub: string; name?: string; picture?: string }) => ({
+                email: `google-${p.sub}@users.invalid`,
+                emailVerified: false,
+                name: p.name,
+                image: p.picture,
+              }),
+            },
+          }
+        : {}),
       discord: {
         clientId: env.DISCORD_CLIENT_ID,
         clientSecret: env.DISCORD_CLIENT_SECRET,

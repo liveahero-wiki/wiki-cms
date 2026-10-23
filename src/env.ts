@@ -12,6 +12,9 @@ export interface Env {
   BETTER_AUTH_SECRET: string
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
+  /** Optional: unset = Google is not offered as a contributor sign-in. */
+  GOOGLE_CLIENT_ID?: string
+  GOOGLE_CLIENT_SECRET?: string
   TURNSTILE_SECRET_KEY: string
   CLI_TOKEN: string
 

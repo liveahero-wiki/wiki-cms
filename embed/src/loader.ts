@@ -1,6 +1,6 @@
 import { isLang, langFromTag, resolveUiLang } from '../../src/shared/i18n.ts'
 import type { ContribSubmission } from '../../src/shared/api-types.ts'
-import { currentSession, onSessionChange, signIn, type StoredSession } from './contrib-session.ts'
+import { currentSession, onSessionChange, signIn, type SignInOptions, type StoredSession } from './contrib-session.ts'
 import { normalizeFormOptions } from './form-api.ts'
 import { loaderStrings } from './i18n/loader.ts'
 import type { ListOpts } from './shared.ts'
@@ -13,8 +13,12 @@ type Host = HTMLElement & { _cms?: 1 }
 interface CmsContrib {
   /** Synchronous, no network: the stored session, or null. */
   session(api?: string): StoredSession | null
-  /** Opens the sign-in popup. Call it directly from a click handler. Rejects with a `SignInError` (`code`, `eligibleAt`). */
-  signIn(api?: string, provider?: string): Promise<StoredSession>
+  /**
+   * Shows the provider picker (last used provider first) and opens the sign-in popup for the chosen one; with
+   * `options.provider` the popup opens at once, so call it directly from a click handler. A string is `{ provider }`.
+   * Rejects with a `SignInError` (`code`, `eligibleAt`, `provider`).
+   */
+  signIn(api?: string, options?: string | SignInOptions): Promise<StoredSession>
   signOut(api?: string): Promise<void>
   /** The signed-in contributor's own submissions (rejects with ApiError 401 after clearing a dead token). */
   mine(type?: string, api?: string): Promise<ContribSubmission[]>
@@ -46,7 +50,7 @@ const apiOf = (api?: string) => (api ?? origin).replace(/\/+$/, '')
 
 const contrib: CmsContrib = {
   session: (api) => currentSession(apiOf(api)),
-  signIn: (api, provider) => signIn(apiOf(api), provider),
+  signIn: (api, options) => signIn(apiOf(api), options),
   signOut: async (api) => (await contribApi()).signOut(apiOf(api)),
   mine: async (type, api) => (await contribApi()).mine(apiOf(api), type),
   rename: async (name, api) => (await contribApi()).rename(apiOf(api), name),
