@@ -31,6 +31,7 @@ export const zhHans: Bundle = {
   'form.loadError': '无法加载投稿表单，请检查网络连接后重试。',
   'form.editorUnavailable': '队伍编辑器加载失败，目前无法投稿。',
   'form.team': '队伍配置',
+  'form.teamFixed': '这是您在页面上创建的队伍。如需修改,请先关闭此表单。',
   'form.required': '必填',
   'form.tagNone': '不回答',
   'form.lang': '说明所用语言',

@@ -31,6 +31,7 @@ export const zhHant: Bundle = {
   'form.loadError': '無法載入投稿表單，請檢查網路連線後重試。',
   'form.editorUnavailable': '隊伍編輯器載入失敗，目前無法投稿。',
   'form.team': '隊伍配置',
+  'form.teamFixed': '這是您在頁面上建立的隊伍。如需修改,請先關閉此表單。',
   'form.required': '必填',
   'form.tagNone': '不回答',
   'form.lang': '說明所用語言',

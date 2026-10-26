@@ -31,6 +31,7 @@ export const ja: Bundle = {
   'form.loadError': '投稿フォームを読み込めませんでした。接続を確認してもう一度お試しください。',
   'form.editorUnavailable': '編成エディターを読み込めなかったため、現在は投稿できません。',
   'form.team': '編成',
+  'form.teamFixed': 'ページで作成した編成です。変更するにはこのフォームを閉じてください。',
   'form.required': '必須',
   'form.tagNone': '回答しない',
   'form.lang': '説明の言語',

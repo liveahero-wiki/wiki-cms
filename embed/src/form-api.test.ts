@@ -58,6 +58,20 @@ describe('normalizeFormOptions', () => {
     expect(norm({ ...valid(), edit: 'abc' })).toBeInstanceOf(Error)
   })
 
+  it('validates and passes through `payload`', () => {
+    const payload = { v: 1, heroes: [] }
+    const r = norm({ ...valid(), payload })
+    if (r instanceof Error) throw r
+    expect(r.payload).toBe(payload)
+    expect(norm(valid())).not.toHaveProperty('payload')
+    for (const bad of [null, [], 'team', 3]) expect(norm({ ...valid(), payload: bad })).toBeInstanceOf(Error)
+  })
+
+  it('does not combine `payload` with `edit`', () => {
+    const initial = { title: 'My team', payload: { v: 1 }, tags: {}, lang: 'en', explanation: 'x', demoUrl: '' }
+    expect(norm({ ...valid(), payload: { v: 1 }, edit: { id: 'abc', version: 2, initial } })).toBeInstanceOf(Error)
+  })
+
   it('validates and passes through `onClose`', () => {
     const onClose = () => undefined
     const r = norm({ ...valid(), onClose })

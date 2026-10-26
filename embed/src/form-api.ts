@@ -19,6 +19,11 @@ export interface OpenFormOptions {
   lang?: string
   /** Edit one of the signed-in contributor's own submissions instead of creating a new one (the form is prefilled from `initial`). */
   edit?: EditTarget
+  /**
+   * A new submission whose team the host has already built (its own editor): the form shows it read-only and submits it
+   * unchanged, and the unsent draft covers only the other fields. Not combinable with `edit`.
+   */
+  payload?: Record<string, unknown>
   /** Called once when the dialog has been closed and removed from `host` (submitted or not), e.g. to refresh the host's own list. */
   onClose?: () => void
 }
@@ -36,6 +41,7 @@ export interface NormalizedFormOptions {
   uiLang: Lang
   groupOptions: Record<string, unknown>
   edit?: EditTarget
+  payload?: Record<string, unknown>
   onClose?: () => void
 }
 
@@ -44,7 +50,7 @@ const isNonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim(
 
 export function normalizeFormOptions(o: unknown, defaultApi: string, resolveLang: (host: HTMLElement) => Lang): NormalizedFormOptions | Error {
   if (!isPlainObject(o)) return new Error('openForm: options must be an object')
-  const { host, type, group, plugin, groupOptions, api, lang, edit, onClose } = o
+  const { host, type, group, plugin, groupOptions, api, lang, edit, payload, onClose } = o
   if (typeof HTMLElement === 'undefined' || !(host instanceof HTMLElement)) return new Error('openForm: `host` must be an HTMLElement')
   if (!isNonEmpty(type)) return new Error('openForm: `type` is required')
   if (!isNonEmpty(group)) return new Error('openForm: `group` is required')
@@ -54,6 +60,8 @@ export function normalizeFormOptions(o: unknown, defaultApi: string, resolveLang
   if (lang !== undefined && typeof lang !== 'string') return new Error('openForm: `lang` must be a string')
 
   if (edit !== undefined && !isEditTarget(edit)) return new Error('openForm: `edit` must be { id, version, initial }')
+  if (payload !== undefined && !isPlainObject(payload)) return new Error('openForm: `payload` must be a plain object')
+  if (payload !== undefined && edit !== undefined) return new Error('openForm: `payload` and `edit` cannot be combined')
   if (onClose !== undefined && typeof onClose !== 'function') return new Error('openForm: `onClose` must be a function')
 
   const uiLang = (lang !== undefined && (isLang(lang) ? lang : langFromTag(lang))) || resolveLang(host)
@@ -63,6 +71,7 @@ export function normalizeFormOptions(o: unknown, defaultApi: string, resolveLang
     uiLang,
     groupOptions,
     ...(edit ? { edit } : {}),
+    ...(payload ? { payload } : {}),
     ...(onClose ? { onClose: onClose as () => void } : {}),
   }
 }

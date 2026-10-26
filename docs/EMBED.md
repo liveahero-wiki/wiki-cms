@@ -108,6 +108,7 @@ interface OpenFormOptions {
   api?: string               // Worker origin; default: the origin v1.js was served from
   lang?: string              // a Lang or a BCP-47 tag; default: resolved from the host. The open dialog keeps it.
   edit?: { id: string; version: number; initial: ContribContent }  // edit the signed-in contributor's own submission (see below)
+  payload?: Record<string, unknown>  // a new submission whose team the host already built (see below); not with `edit`
   onClose?: () => void      // called once the dialog has closed and been removed (submitted or not), e.g. to reload contrib.mine()
 }
 window.cmsEmbed.openForm(options): Promise<void>
@@ -147,6 +148,8 @@ A Google popup cannot be watched for closing (see ARCHITECTURE.md "Contributor a
 `SignInError.code`: `popup_blocked`, `closed`, `cancelled` (picker dismissed: show nothing), `superseded` (a newer `signIn` took over: ignore, the newer call owns your busy state), `account_too_young` (+ `eligibleAt`), `unauthenticated`, `unavailable` (also: no BroadcastChannel for a Google sign-in). `SignInError.provider` is the provider whose popup failed, when known.
 
 **Editing:** pass `edit: { id, version, initial }` to `openForm` (take them from a `ContribSubmission`: its `id`, `version`, and the content of its pending/rejected `revision` or of the submission itself). The form is prefilled, keeps its unsent draft under `cms-draft-edit:<id>:<version>` (so signing in again after an expired session does not lose the work), and saves with `PUT`. For a published submission the result is "queued for moderator review; the current version stays visible".
+
+**Host-built team:** a host with its own team editor passes `payload` (a payload the plugin accepts) to `openForm`. The form then shows the team read-only (the plugin's `mountDetail`) in place of the editor and submits it unchanged; everything else (title, tags, language, explanation, demo link, verification, sign-in) is as usual. The unsent draft (`cms-draft:<type>:<group>`) keeps only those other fields, and the team always comes from the host, so the host's editor stays the one place the team is changed. The host validates the payload itself first; the server validates it again as for any submission. Hosts that pass `payload` to an older `v1.js` get the normal form with a blank editor, so deploy the Worker before the host.
 
 ## Local development
 

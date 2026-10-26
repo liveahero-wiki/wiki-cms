@@ -32,6 +32,7 @@ export const en = {
   'form.loadError': 'Could not load the submission form. Please check your connection and try again.',
   'form.editorUnavailable': 'The team editor could not be loaded, so submissions are unavailable right now.',
   'form.team': 'Team formation',
+  'form.teamFixed': 'This is the team you built on the page. Close this form to change it.',
   'form.required': 'required',
   'form.tagNone': 'No answer',
   'form.lang': 'Explanation language',

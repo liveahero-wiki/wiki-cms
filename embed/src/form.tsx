@@ -21,6 +21,8 @@ export interface FormArgs {
   groupOptions: Record<string, unknown>
   /** Edit one of the signed-in contributor's own submissions (prefilled; the draft is kept per submission version). */
   edit?: EditTarget
+  /** The host's own team for a new submission: shown read-only, submitted unchanged. */
+  payload?: Record<string, unknown>
   /** Called once when the dialog has been closed and removed. */
   onClose?: () => void
 }
@@ -156,6 +158,29 @@ function Req({ lang }: { lang: Lang }) {
   return <span class="cms-req">({t(lang, 'form.required')})</span>
 }
 
+/** The host-built team of a prefilled form: the plugin's read-only detail view. */
+function DetailMount({ plugin, payload, ctx }: { plugin: SubmissionPlugin; payload: unknown; ctx: ReturnType<typeof makeCtx> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current!
+    let cleanup: (() => void) | undefined
+    try {
+      cleanup = plugin.mountDetail(el, payload, ctx)
+    } catch (e) {
+      console.warn('[wiki-cms] plugin could not show the team', e)
+    }
+    return () => {
+      try {
+        cleanup?.()
+      } catch {
+        /* ignore plugin cleanup errors */
+      }
+      el.replaceChildren()
+    }
+  }, [])
+  return <div ref={ref} class="cms-team-detail" data-field="payload" tabIndex={-1} />
+}
+
 function EditorMount({
   plugin,
   initial,
@@ -211,7 +236,7 @@ function FormBody({ cfg, plugin, args, session, close, setClose }: {
   close(): void
   setClose(fn: () => void): void
 }) {
-  const { opts, uiLang: L, groupOptions, edit } = args
+  const { opts, uiLang: L, groupOptions, edit, payload: fixed } = args
   // Edits keep their own draft per submission version, so a lost session (sign-in again remounts this body) or an
   // accidental close does not throw the work away; it is pristine (not stored) until something changes.
   const draftKey = edit ? `cms-draft-edit:${edit.id}:${edit.version}` : `cms-draft:${opts.type}:${opts.group}`
@@ -221,10 +246,16 @@ function FormBody({ cfg, plugin, args, session, close, setClose }: {
     () =>
       edit
         ? { payload: edit.initial.payload, title: edit.initial.title, tags: { ...edit.initial.tags }, lang: edit.initial.lang, explanation: edit.initial.explanation, demoUrl: edit.initial.demoUrl }
-        : { payload: plugin.defaultPayload(), title: '', tags: tagDefaults(cfg), lang: defaultLang, explanation: template(cfg, defaultLang), demoUrl: '' },
+        : { payload: fixed ?? plugin.defaultPayload(), title: '', tags: tagDefaults(cfg), lang: defaultLang, explanation: template(cfg, defaultLang), demoUrl: '' },
     [],
   )
-  const restored = useMemo(() => readDraft(draftKey, cfg), [])
+  // A draft saved with another team still restores the other fields; one that has nothing else in it is not a draft.
+  const restored = useMemo(() => {
+    const d = readDraft(draftKey, cfg)
+    if (!d || fixed === undefined) return d
+    const withTeam = { ...d, payload: fixed }
+    return stable(withTeam) === stable(fresh) ? null : withTeam
+  }, [])
   const [v, setV] = useState<Values>(restored ?? fresh)
   const [draftNote, setDraftNote] = useState(restored !== null)
   const [editorKey, setEditorKey] = useState(0)
@@ -506,17 +537,25 @@ function FormBody({ cfg, plugin, args, session, close, setClose }: {
           <div class="cms-label" id="cms-f-team">
             {t(L, 'form.team')} <Req lang={L} />
           </div>
-          <EditorMount
-            key={editorKey}
-            plugin={plugin}
-            initial={v.payload}
-            ctx={ctx}
-            onChange={(p) => {
-              setV((x) => ({ ...x, payload: p }))
-              clearErrors(isPayloadPath)
-            }}
-            onHandle={(h) => (editor.current = h)}
-          />
+          {fixed !== undefined ? (
+            <>
+              <DetailMount plugin={plugin} payload={fixed} ctx={ctx} />
+              <p class="cms-hint">{t(L, 'form.teamFixed')}</p>
+              <Errors id="cms-team-err" lang={L} errors={payloadErrors} />
+            </>
+          ) : (
+            <EditorMount
+              key={editorKey}
+              plugin={plugin}
+              initial={v.payload}
+              ctx={ctx}
+              onChange={(p) => {
+                setV((x) => ({ ...x, payload: p }))
+                clearErrors(isPayloadPath)
+              }}
+              onHandle={(h) => (editor.current = h)}
+            />
+          )}
         </div>
 
         {cfg.tags.map((def) => {
