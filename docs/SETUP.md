@@ -192,8 +192,9 @@ Embed chunks are `immutable` and `v1.js` is browser-cached for 5 minutes; re-che
 ## 5. Optional: Discord notifications for new submissions
 
 Each submission type can post a short message to a Discord webhook (optionally into a thread) whenever a new submission is waiting for review,
-so moderators don't have to keep refreshing the queue. The message contains only the type, group title, pending count and a link to
-`<PUBLIC_URL>/t/<type>/g/<group>`; it never contains user-submitted text and cannot ping anyone.
+so moderators don't have to keep refreshing the queue. The message contains only the type, pending count and a link to
+`<PUBLIC_URL>/t/<type>` (the pending submissions; a contributor edit links to `<PUBLIC_URL>/t/<type>?tab=edits`); it never contains
+user-submitted text and cannot ping anyone.
 
 ```bash
 node cli/cms.ts type update lah-team-formation --remote \
