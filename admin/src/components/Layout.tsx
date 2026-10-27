@@ -67,6 +67,16 @@ function NavLink({ href, active, children }: { href: string; active: boolean; ch
   )
 }
 
+/** Pending count; `alert` colours it like a warn badge (contributor edits waiting for review). */
+function NavCount({ n, alert, title }: { n: number; alert?: boolean; title: string }) {
+  if (!n) return null
+  return (
+    <span class={`tab-count${alert ? ' tab-count-alert' : ''}`} title={title}>
+      {n}
+    </span>
+  )
+}
+
 function Sidebar({ me, path, search }: { me: MeResponse; path: string; search: string }) {
   const tab = new URLSearchParams(search).get('tab')
   return (
@@ -76,22 +86,32 @@ function Sidebar({ me, path, search }: { me: MeResponse; path: string; search: s
         {me.types.map((t) => {
           const base = typePath(t.id)
           const inType = path === base || path.startsWith(`${base}/`)
+          const onSubmissions = path === base && tab !== 'edits'
           return (
             <li key={t.id}>
-              <NavLink href={base} active={inType && path === base && tab !== 'queue'}>
-                {t.name}
+              <NavLink href={base} active={inType && onSubmissions}>
+                <span class="nav-name">{t.name}</span>
                 {!t.enabled && <span class="nav-tag">disabled</span>}
+                {/* The sub-links carry the same numbers once the type is open. */}
+                {!inType && (
+                  <span class="nav-counts">
+                    <NavCount n={t.pendingSubmissions} title={`${t.pendingSubmissions} pending submissions`} />
+                    <NavCount n={t.pendingEdits} alert title={`${t.pendingEdits} contributor edits waiting for review`} />
+                  </span>
+                )}
               </NavLink>
               {inType && (
                 <ul class="nav-sub">
                   <li>
-                    <NavLink href={base} active={path === base && tab !== 'queue'}>
-                      Groups
+                    <NavLink href={base} active={onSubmissions}>
+                      <span class="nav-name">Submissions</span>
+                      <NavCount n={t.pendingSubmissions} title={`${t.pendingSubmissions} pending submissions`} />
                     </NavLink>
                   </li>
                   <li>
-                    <NavLink href={`${base}?tab=queue`} active={path === base && tab === 'queue'}>
-                      Pending queue
+                    <NavLink href={`${base}?tab=edits`} active={path === base && tab === 'edits'}>
+                      <span class="nav-name">Contributor edits</span>
+                      <NavCount n={t.pendingEdits} alert title={`${t.pendingEdits} contributor edits waiting for review`} />
                     </NavLink>
                   </li>
                 </ul>

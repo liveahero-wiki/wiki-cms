@@ -28,6 +28,21 @@ export async function refreshSession() {
   }
 }
 
+/**
+ * Re-reads `/me` for the pending counts behind the sidebar badges and the tab counts.
+ * Unlike refreshSession it leaves a working session alone when the call fails: the numbers
+ * are an indicator, not something to tear the page down for.
+ */
+export async function refreshCounts() {
+  if (session.status !== 'in') return
+  try {
+    const me = await api.get<MeResponse>('/me', { quiet401: true })
+    if (session.status === 'in') set({ status: 'in', me })
+  } catch {
+    /* keep the stale counts */
+  }
+}
+
 export async function signOut() {
   try {
     await raw.post('/api/auth/sign-out', {})

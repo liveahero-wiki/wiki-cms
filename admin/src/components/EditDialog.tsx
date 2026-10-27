@@ -6,7 +6,7 @@ import { ApiError, api, errorMessage } from '../api.ts'
 import { checkTitle } from '../../../src/shared/title-policy.ts'
 import { loadMarkdownPolicy } from '../markdown.ts'
 import { useTheme } from '../theme.ts'
-import { useTypeData } from '../typeData.tsx'
+import { isGrouped, useTypeData } from '../typeData.tsx'
 import { Dialog, Notice } from './ui.tsx'
 
 type Policy = Awaited<ReturnType<typeof loadMarkdownPolicy>>
@@ -269,17 +269,20 @@ export function EditDialog({ item, onClose, onSaved, onConflictReload }: Props) 
           </Notice>
         )}
 
-        <label class="field">
-          <span class="field-label">Group</span>
-          <select class="input" value={groupId} onChange={(e) => setGroupId(e.currentTarget.value)} disabled={saving}>
-            {groups.map((g) => (
-              <option key={g.groupId} value={g.groupId}>
-                {g.title === g.groupId ? g.groupId : `${g.title} (${g.groupId})`}
-              </option>
-            ))}
-          </select>
-          {groupId !== item.groupId && <span class="hint">Moving groups: the team formation is validated against the new group&apos;s rules (for example the support slot).</span>}
-        </label>
+        {/* A type with a single group (every LAH type today) has nothing to pick. */}
+        {isGrouped(td) && (
+          <label class="field">
+            <span class="field-label">Group</span>
+            <select class="input" value={groupId} onChange={(e) => setGroupId(e.currentTarget.value)} disabled={saving}>
+              {groups.map((g) => (
+                <option key={g.groupId} value={g.groupId}>
+                  {g.title === g.groupId ? g.groupId : `${g.title} (${g.groupId})`}
+                </option>
+              ))}
+            </select>
+            {groupId !== item.groupId && <span class="hint">Moving groups: the team formation is validated against the new group&apos;s rules (for example the support slot).</span>}
+          </label>
+        )}
 
         {config?.title && (
           <label class="field">

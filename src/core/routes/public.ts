@@ -182,7 +182,7 @@ publicRoutes.post('/submissions/:type/:group', async (c) => {
   }
 
   // 12. Optional Discord notification for moderators (best-effort, rate limited, never blocks).
-  if (rt.discordWebhookUrl) c.executionCtx.waitUntil(notifyNewSubmission(c.env, rt, typeId, group, pending + 1, now))
+  if (rt.discordWebhookUrl) c.executionCtx.waitUntil(notifyNewSubmission(c.env, rt, typeId, pending + 1, now))
 
   // 13.
   return c.json({ id, state: 'pending' }, 202)

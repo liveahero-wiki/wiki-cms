@@ -172,10 +172,10 @@ export interface AdminUser {
   name: string
   image: string | null
 }
-/** GET /me */
+/** GET /me. The two counts drive the sidebar badges and the tab counts; they are refreshed with the rest of the session. */
 export interface MeResponse {
   user: AdminUser
-  types: { id: string; name: string; pluginUrl: string; enabled: boolean; hasCodeDef: boolean }[]
+  types: { id: string; name: string; pluginUrl: string; enabled: boolean; hasCodeDef: boolean; pendingSubmissions: number; pendingEdits: number }[]
 }
 
 export interface AdminGroup {

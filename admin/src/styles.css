@@ -246,6 +246,19 @@ main:focus {
   background: var(--cms-chip-bg);
   font-weight: 600;
 }
+/* The name takes the room that is left, so the counts stay on the right of the row. */
+.nav-name {
+  flex: 1;
+  min-width: 0;
+}
+.nav-counts {
+  display: flex;
+  gap: 4px;
+}
+.nav-link .tab-count {
+  margin-left: 0;
+  white-space: nowrap;
+}
 .nav-tag {
   font-size: 0.7rem;
   background: var(--warn-bg);
@@ -687,9 +700,14 @@ fieldset[aria-invalid='true'] {
   border-radius: 999px;
   padding: 0 7px;
 }
+/* Work waiting for a moderator (contributor edits) stands out from a plain count. */
+.tab-count-alert {
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 600;
+}
 
-/* ---- groups list ----------------------------------------------------------- */
-.group-list,
+/* ---- row lists (invites, moderators, ip blocks, audit) --------------------- */
 .rows {
   list-style: none;
   margin: 0;
@@ -698,7 +716,6 @@ fieldset[aria-invalid='true'] {
   flex-direction: column;
   gap: 8px;
 }
-.group-row,
 .row {
   display: flex;
   align-items: center;
@@ -713,57 +730,9 @@ fieldset[aria-invalid='true'] {
   align-items: stretch;
   gap: 6px;
 }
-.row-main,
-.group-main {
+.row-main {
   flex: 1;
   min-width: 0;
-}
-.group-title {
-  font-weight: 600;
-}
-.group-id {
-  display: block;
-  font-size: 0.82rem;
-  color: var(--cms-muted);
-}
-.counts {
-  display: flex;
-  gap: 14px;
-  margin: 0;
-}
-.counts div {
-  text-align: center;
-  min-width: 52px;
-}
-.counts dt {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  color: var(--cms-muted);
-}
-.counts dd {
-  margin: 0;
-  font-weight: 600;
-}
-.count-pending dd {
-  color: var(--warn);
-}
-.group-latest {
-  font-size: 0.82rem;
-  color: var(--cms-muted);
-  min-width: 90px;
-  text-align: right;
-}
-@media (max-width: 640px) {
-  .group-row {
-    flex-wrap: wrap;
-    gap: 6px 14px;
-  }
-  .group-main {
-    flex-basis: 100%;
-  }
-  .group-latest {
-    margin-left: auto;
-  }
 }
 
 /* ---- submission cards ------------------------------------------------------ */

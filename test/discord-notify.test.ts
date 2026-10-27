@@ -20,7 +20,7 @@ const submit = (h: ReturnType<typeof makeHarness>, i: number, group = 'quest-1')
 beforeEach(() => resetState())
 
 describe('Discord notification', () => {
-  it('posts a link to the group queue into the configured thread', async () => {
+  it('posts a link to the type page into the configured thread', async () => {
     await configure()
     const h = makeHarness()
     expect((await submit(h, 1)).status).toBe(202)
@@ -31,7 +31,8 @@ describe('Discord notification', () => {
     expect(u.searchParams.get('thread_id')).toBe('555')
     expect(u.searchParams.get('wait')).toBe('false')
     const { content, allowed_mentions } = discordCalls[0]!.body
-    expect(content).toContain('/t/lah-team-formation/g/quest-1')
+    expect(content).toContain('/t/lah-team-formation')
+    expect(content).not.toContain('/g/') // the admin has no group pages
     expect(content).toContain('1 pending')
     expect(content).not.toContain('team 1') // user-supplied text is never forwarded
     expect(allowed_mentions).toEqual({ parse: [] })

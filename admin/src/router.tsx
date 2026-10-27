@@ -60,4 +60,21 @@ export function Link({ href, onClick, children, ...rest }: LinkProps) {
 }
 
 export const typePath = (type: string) => `/t/${encodeURIComponent(type)}`
-export const groupPath = (type: string, group: string) => `${typePath(type)}/g/${encodeURIComponent(group)}`
+
+/**
+ * Url of a view on a type page. The default view (pending submissions, every group) is the bare
+ * type path; a group only appears in the url once a type has more than one.
+ */
+export function viewPath(
+  type: string,
+  opts: { state?: 'pending' | 'approved' | 'spam'; tab?: 'edits'; edits?: string; group?: string } = {},
+): string {
+  const qs = new URLSearchParams()
+  if (opts.tab === 'edits') {
+    qs.set('tab', 'edits')
+    if (opts.edits && opts.edits !== 'pending') qs.set('edits', opts.edits)
+  } else if (opts.state && opts.state !== 'pending') qs.set('state', opts.state)
+  if (opts.group) qs.set('group', opts.group)
+  const s = qs.toString()
+  return s ? `${typePath(type)}?${s}` : typePath(type)
+}

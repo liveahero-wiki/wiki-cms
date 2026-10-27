@@ -304,7 +304,7 @@ contribRoutes.post('/submissions/:type/:group', ...guard, async (c) => {
     userId: me.id,
   })
   moderate(c, rt, id, val, now)
-  if (rt.discordWebhookUrl) c.executionCtx.waitUntil(notifyNewSubmission(c.env, rt, typeId, group, pending + 1, now))
+  if (rt.discordWebhookUrl) c.executionCtx.waitUntil(notifyNewSubmission(c.env, rt, typeId, pending + 1, now))
   return c.json({ id, state: 'pending', version: 1 }, 202)
 })
 
@@ -378,7 +378,7 @@ contribRoutes.put('/submissions/:id', ...guard, async (c) => {
       createdAt: now,
     }),
   ])
-  if (rt.discordWebhookUrl && !hadOpen) c.executionCtx.waitUntil(notifyNewSubmission(c.env, rt, row.type, group, pending + 1, now, 'revision'))
+  if (rt.discordWebhookUrl && !hadOpen) c.executionCtx.waitUntil(notifyNewSubmission(c.env, rt, row.type, pending + 1, now, 'revision'))
   return c.json({ id: row.id, state: 'revision_pending', version: row.version }, 202)
 })
 

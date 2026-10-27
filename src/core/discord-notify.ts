@@ -33,7 +33,6 @@ export async function notifyNewSubmission(
   env: Env,
   rt: ResolvedType,
   typeId: string,
-  group: { id: string; title: string },
   pendingCount: number,
   now: number,
   kind: 'submission' | 'revision' = 'submission',
@@ -43,15 +42,17 @@ export async function notifyNewSubmission(
   try {
     if (!isDiscordWebhookUrl(hook)) return
     if (!(await claimSlot(env, typeId, rt.webhookPerHour, now))) return
-    const link = `${env.PUBLIC_URL.replace(/\/$/, '')}/t/${encodeURIComponent(typeId)}/g/${encodeURIComponent(group.id)}`
+    // The admin has no group pages any more: submissions land on the type's pending list, edits on its edits tab.
+    const base = `${env.PUBLIC_URL.replace(/\/$/, '')}/t/${encodeURIComponent(typeId)}`
+    const link = kind === 'revision' ? `${base}?tab=edits` : base
     const res = await fetch(webhookExecuteUrl(hook, rt.discordThreadId), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content:
           kind === 'revision'
-            ? `A contributor edit of a **${rt.name}** submission for **${group.title}** is waiting for review (${pendingCount} pending): ${link}`
-            : `New **${rt.name}** submission for **${group.title}** is waiting for review (${pendingCount} pending): ${link}`,
+            ? `A contributor edit of a **${rt.name}** submission is waiting for review (${pendingCount} pending): ${link}`
+            : `New **${rt.name}** submission is waiting for review (${pendingCount} pending): ${link}`,
         allowed_mentions: { parse: [] },
       }),
       signal: AbortSignal.timeout(3000),

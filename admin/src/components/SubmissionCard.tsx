@@ -4,10 +4,10 @@ import type { PluginContext } from '../../../src/shared/plugin-api.ts'
 import { ApiError, api, errorMessage } from '../api.ts'
 import { flagEmoji, formatAbsolute, formatRelative } from '../format.ts'
 import { loadMarkdownPolicy } from '../markdown.ts'
-import { Link, groupPath, typePath } from '../router.tsx'
+import { Link, typePath } from '../router.tsx'
 import { useTheme } from '../theme.ts'
 import { toast } from '../toast.tsx'
-import { groupOf, groupTitle, langLabel, tagLabels, useTypeData, type TypeData } from '../typeData.tsx'
+import { groupOf, groupTitle, isGrouped, langLabel, tagLabels, useTypeData, type TypeData } from '../typeData.tsx'
 import { BlockIpDialog } from './BlockIpDialog.tsx'
 import { OwnerDialog, OwnerLabel } from './OwnerDialog.tsx'
 import { PluginView, RawPayload } from './PluginView.tsx'
@@ -75,7 +75,7 @@ function OriginalPanel({ original }: { original: NonNullable<AdminSubmission['or
       {td.config?.title && <p class="card-title">{original.title ? original.title : <span class="hint">Untitled</span>}</p>}
       <PayloadView kind="summary" payload={original.payload} groupId={original.groupId} />
       <p class="meta-line">
-        <span>Group: {groupTitle(td, original.groupId)}</span>
+        {isGrouped(td) && <span>Group: {groupTitle(td, original.groupId)}</span>}
         <span>Language: {langLabel(td.config, original.lang)}</span>
         {tags.map((t) => (
           <span key={t.key}>
@@ -190,11 +190,7 @@ export function SubmissionCard({ item, listState, listGroup, showGroup, onUpdate
             AI: {item.aiVerdict}
           </Badge>
         )}
-        {showGroup && (
-          <Link class="card-group" href={groupPath(item.type, item.groupId)}>
-            {groupTitle(td, item.groupId)}
-          </Link>
-        )}
+        {showGroup && isGrouped(td) && <span class="card-group">{groupTitle(td, item.groupId)}</span>}
         <time class="card-time" dateTime={new Date(item.createdAt).toISOString()}>
           {formatAbsolute(item.createdAt)} · {formatRelative(item.createdAt)}
         </time>

@@ -5,6 +5,7 @@ import type { SubmissionPlugin } from '../../src/shared/plugin-api.ts'
 import { api, errorMessage, raw } from './api.ts'
 import { useAsync } from './hooks.ts'
 import { loadPlugin } from './plugin.ts'
+import { refreshCounts } from './session.ts'
 
 export type PluginState =
   | { status: 'loading' }
@@ -20,6 +21,7 @@ export interface TypeData {
   /** All registry groups plus groups that only exist through submissions (`?all=1`). */
   groups: AdminGroup[] | undefined
   groupsError: string | null
+  /** Reloads the per-state counts and, with them, the sidebar's pending badges. */
   reloadGroups: () => void
   plugin: PluginState
 }
@@ -66,7 +68,10 @@ export function TypeProvider({ info, children }: { info: MeResponse['types'][num
     configError: config.error ? errorMessage(config.error) : null,
     groups: groups.data?.groups,
     groupsError: groups.error ? errorMessage(groups.error) : null,
-    reloadGroups: groups.reload,
+    reloadGroups: () => {
+      groups.reload()
+      void refreshCounts()
+    },
     plugin,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
@@ -84,5 +89,12 @@ export function tagLabels(config: TypeConfig | undefined, tags: Record<string, s
 export const langLabel = (config: TypeConfig | undefined, lang: string) => config?.langs.find((l) => l.value === lang)?.label ?? lang
 
 export const groupOf = (td: TypeData, groupId: string): AdminGroup | undefined => td.groups?.find((g) => g.groupId === groupId)
+
+/**
+ * Whether the type really is split into groups. Every LAH type now lives in the single group `all`,
+ * so the group filter, the group chips and the edit dialog's group picker stay hidden until a type
+ * has more than one; nothing about the data model changes.
+ */
+export const isGrouped = (td: TypeData): boolean => (td.groups?.length ?? 0) > 1
 
 export const groupTitle = (td: TypeData, groupId: string): string => groupOf(td, groupId)?.title ?? groupId

@@ -92,10 +92,30 @@ describe('authn / authz', () => {
     expect(ok.headers.get('Cache-Control')).toBe('private, no-store')
   })
 
-  it('/me lists permitted types with plugin url and code-def flag', async () => {
+  it('/me lists permitted types with plugin url, code-def flag and the pending counts', async () => {
     const mod = await login('m1')
     const me = await json(await api(mod, 'GET', '/me'))
-    expect(me.types).toEqual([{ id: TYPE, name: 'LAH team formation', pluginUrl: `${ORIGIN}/assets/cms/p.js`, enabled: true, hasCodeDef: true }])
+    expect(me.types).toEqual([
+      { id: TYPE, name: 'LAH team formation', pluginUrl: `${ORIGIN}/assets/cms/p.js`, enabled: true, hasCodeDef: true, pendingSubmissions: 0, pendingEdits: 0 },
+    ])
+  })
+
+  it('/me counts pending submissions and pending contributor edits per type', async () => {
+    const mod = await login('m1')
+    const id = await submit()
+    await submit('quest-1', {}, '203.0.113.51')
+    const now = Date.now()
+    await env.DB.prepare(
+      `INSERT INTO submission_revision_tab (id,submission_id,user_id,state,base_version,title,payload,tags,lang,explanation,explanation_html,demo_url,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+      .bind('rev-1', id, null, 'pending', 1, 'Edited', '{}', '{}', 'en', '', '', '', now)
+      .run()
+    const me = await json(await api(mod, 'GET', '/me'))
+    expect(me.types[0]).toMatchObject({ id: TYPE, pendingSubmissions: 2, pendingEdits: 1 })
+    // A decided edit no longer counts.
+    await env.DB.prepare(`UPDATE submission_revision_tab SET state = 'rejected' WHERE id = 'rev-1'`).run()
+    expect((await json(await api(mod, 'GET', '/me'))).types[0]).toMatchObject({ pendingSubmissions: 2, pendingEdits: 0 })
   })
 
   it('moderator of type A cannot read or act on type B, nor invite for B', async () => {

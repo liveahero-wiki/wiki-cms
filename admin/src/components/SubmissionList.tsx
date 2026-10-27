@@ -1,15 +1,40 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { AdminSubmission, SubmissionState, SubmissionsResponse } from '../../../src/shared/api-types.ts'
 import { api, errorMessage } from '../api.ts'
-import { useTypeData } from '../typeData.tsx'
+import { navigate, viewPath } from '../router.tsx'
+import { isGrouped, useTypeData } from '../typeData.tsx'
 import { SubmissionCard } from './SubmissionCard.tsx'
 import { Empty, ErrorBox, Notice, Skeleton } from './ui.tsx'
 
 interface Props {
   typeId: string
-  /** Omit for the cross-group queue of the type. */
+  /** Omit for every group of the type (the default; only a type with several groups offers the filter). */
   groupId?: string
   state: SubmissionState
+}
+
+/** Only rendered for a type that has more than one group; it writes `?group=` so the view stays linkable. */
+function GroupFilter({ typeId, groupId, state }: Props) {
+  const td = useTypeData()
+  if (!isGrouped(td)) return null
+  const groups = [...(td.groups ?? [])].sort((a, b) => a.title.localeCompare(b.title))
+  return (
+    <label class="field field-inline">
+      <span class="field-label">Group</span>
+      <select
+        class="input input-small"
+        value={groupId ?? ''}
+        onChange={(e) => navigate(viewPath(typeId, { state, group: e.currentTarget.value || undefined }))}
+      >
+        <option value="">All groups</option>
+        {groups.map((g) => (
+          <option key={g.groupId} value={g.groupId}>
+            {g.title === g.groupId ? g.groupId : `${g.title} (${g.groupId})`}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
 }
 
 /** Keyset-paginated list of submission cards ("Load more"). */
@@ -77,6 +102,7 @@ export function SubmissionList({ typeId, groupId, state }: Props) {
       {error && <ErrorBox message={error} onRetry={() => load(items.length === 0, items.length === 0 ? null : cursor)} />}
       {ready && (
         <div class="list-bar">
+          <GroupFilter typeId={typeId} groupId={groupId} state={state} />
           <span class="hint">
             {items.length > 0 && `Showing ${shown.length} of ${items.length} loaded submission${items.length === 1 ? '' : 's'}, newest first`}
           </span>

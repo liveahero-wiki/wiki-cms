@@ -5,7 +5,7 @@ import { ErrorBox, Skeleton, lazyPage } from './components/ui.tsx'
 import { InvitePage, LoginPage } from './pages/Auth.tsx'
 import { HomePage } from './pages/Home.tsx'
 import { TypePage } from './pages/TypePages.tsx'
-import { Link, navigate, safeNext, useLocation } from './router.tsx'
+import { Link, navigate, safeNext, useLocation, viewPath } from './router.tsx'
 import { refreshSession, useSession } from './session.ts'
 import { Toasts } from './toast.tsx'
 
@@ -39,7 +39,7 @@ function decode(s: string): string {
   }
 }
 
-function Routes({ me, path }: { me: MeResponse; path: string }) {
+function Routes({ me, path, search }: { me: MeResponse; path: string; search: string }) {
   let m: RegExpMatchArray | null
   if (path === '/') return <HomePage me={me} />
   if (path === '/invites') return <InvitesPage me={me} />
@@ -47,7 +47,12 @@ function Routes({ me, path }: { me: MeResponse; path: string }) {
   if (path === '/ip-blocks') return <IpBlocksPage />
   if (path === '/audit') return <AuditPage me={me} />
   if ((m = path.match(/^\/invite\/([^/]+)$/))) return <InvitePage key={m[1]} token={decode(m[1]!)} />
-  if ((m = path.match(/^\/t\/([^/]+)\/g\/([^/]+)\/?$/))) return <TypePage me={me} typeId={decode(m[1]!)} groupId={decode(m[2]!)} />
+  // Retired group pages (old bookmarks, past Discord links) become a group filter on the type page.
+  if ((m = path.match(/^\/t\/([^/]+)\/g\/([^/]+)\/?$/))) {
+    const raw = new URLSearchParams(search).get('state')
+    const state = raw === 'approved' || raw === 'spam' ? raw : undefined
+    return <Redirect to={viewPath(decode(m[1]!), { state, group: decode(m[2]!) })} />
+  }
   if ((m = path.match(/^\/t\/([^/]+)\/?$/))) return <TypePage me={me} typeId={decode(m[1]!)} />
   return <NotFound />
 }
@@ -105,7 +110,7 @@ export function App() {
   } else {
     body = (
       <Layout me={session.me}>
-        <Routes me={session.me} path={path} />
+        <Routes me={session.me} path={path} search={search} />
       </Layout>
     )
   }

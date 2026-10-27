@@ -1,6 +1,7 @@
 // Local dev only: inserts sample submissions into the LOCAL D1 (type lah-team-formation).
 //   node scripts/dev-seed.mjs            # adds a fresh batch (ids are random)
 //   node scripts/dev-seed.mjs --reset    # first deletes all existing submissions of the type
+//   node scripts/dev-seed.mjs --single-group  # one group (`all`), like production: no group controls
 import { randomUUID } from 'node:crypto'
 import { renderExplanation } from '../src/shared/markdown-policy.ts'
 import { runLocalSql, sqlLit } from './dev-lib.mjs'
@@ -82,9 +83,36 @@ for (let i = 0; i < 55; i++) {
 const cols = ['id', 'type', 'groupId', 'state', 'title', 'version', 'payload', 'tags', 'lang', 'explanation', 'explanationHtml', 'demoUrl', 'createdAt', 'updatedAt', 'stateChangedAt', 'original', 'ip', 'ipKey', 'country', 'aiVerdict', 'aiReason']
 const dbCols = ['id', 'type', 'group_id', 'state', 'title', 'version', 'payload', 'tags', 'lang', 'explanation', 'explanation_html', 'demo_url', 'created_at', 'updated_at', 'state_changed_at', 'original', 'ip', 'ip_key', 'country', 'ai_verdict', 'ai_reason']
 const lit = (v) => sqlLit(typeof v === 'object' && v !== null ? JSON.stringify(v) : v)
+
+// Production has one group (`all`), which hides the admin's group filter, chips and picker; the
+// default seed keeps several groups so the multi-group path stays testable.
+if (process.argv.includes('--single-group')) for (const r of rows) r.groupId = 'all'
+
+// One pending contributor edit of an approved team, for the Contributor edits view and its badges.
+// `user_id` stays null (no contributor account is seeded), which the admin shows as an unknown owner.
+const edited = rows.find((r) => r.state === 'approved')
+const revCols = ['id', 'submission_id', 'user_id', 'state', 'base_version', 'title', 'payload', 'tags', 'lang', 'explanation', 'explanation_html', 'demo_url', 'created_at']
+const revExplanation = 'Swapped the third hero: the original line-up died to the AoE.'
+const revValues = edited && [
+  randomUUID(),
+  edited.id,
+  null,
+  'pending',
+  edited.version,
+  `${edited.title || 'Untitled'} (contributor edit)`,
+  edited.payload,
+  edited.tags,
+  edited.lang,
+  revExplanation,
+  renderExplanation(revExplanation),
+  edited.demoUrl,
+  now - 4 * MIN,
+]
+
 const sql = [
   ...(process.argv.includes('--reset') ? [`DELETE FROM submission_tab WHERE type = ${sqlLit(TYPE)};`] : []),
   ...rows.map((r) => `INSERT INTO submission_tab (${dbCols.join(',')}) VALUES (${cols.map((c) => lit(r[c])).join(',')});`),
+  ...(revValues ? [`INSERT INTO submission_revision_tab (${revCols.join(',')}) VALUES (${revValues.map(lit).join(',')});`] : []),
 ].join('\n')
 runLocalSql(sql)
-console.log(`Inserted ${rows.length} submissions into the local D1.`)
+console.log(`Inserted ${rows.length} submissions${revValues ? ' and 1 pending contributor edit' : ''} into the local D1.`)

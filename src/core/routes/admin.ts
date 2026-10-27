@@ -124,9 +124,27 @@ adminRoutes.get('/me', requireSession, async (c) => {
   const db = getDb(c.env)
   const user = c.get('user')
   const perm = c.get('permTypes')
-  const rows = perm.length
-    ? await db.select().from(submission_type_tab).where(inArray(submission_type_tab.id, perm)).all()
-    : []
+  const [rows, pendingSubs, pendingEdits] = perm.length
+    ? await Promise.all([
+        db.select().from(submission_type_tab).where(inArray(submission_type_tab.id, perm)).all(),
+        db
+          .select({ type: submission_tab.type, n: count() })
+          .from(submission_tab)
+          .where(and(inArray(submission_tab.type, perm), eq(submission_tab.state, 'pending')))
+          .groupBy(submission_tab.type)
+          .all(),
+        // Same join as the revisions list; the revision table has no type column.
+        db
+          .select({ type: submission_tab.type, n: count() })
+          .from(submission_revision_tab)
+          .innerJoin(submission_tab, eq(submission_tab.id, submission_revision_tab.submissionId))
+          .where(and(inArray(submission_tab.type, perm), eq(submission_revision_tab.state, 'pending')))
+          .groupBy(submission_tab.type)
+          .all(),
+      ])
+    : [[], [], []]
+  const subCount = new Map(pendingSubs.map((r) => [r.type, r.n]))
+  const editCount = new Map(pendingEdits.map((r) => [r.type, r.n]))
   return c.json({
     user,
     types: rows.map((r) => ({
@@ -135,6 +153,8 @@ adminRoutes.get('/me', requireSession, async (c) => {
       pluginUrl: r.pluginUrl,
       enabled: !!r.enabled,
       hasCodeDef: TYPE_DEFS.some((d) => d.id === r.id),
+      pendingSubmissions: subCount.get(r.id) ?? 0,
+      pendingEdits: editCount.get(r.id) ?? 0,
     })),
   })
 })

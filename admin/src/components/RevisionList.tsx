@@ -5,7 +5,7 @@ import { ApiError, api, errorMessage } from '../api.ts'
 import { formatAbsolute, formatRelative } from '../format.ts'
 import { baseIsStale, changedFields, type RevisionField } from '../revisions.ts'
 import { toast } from '../toast.tsx'
-import { groupTitle, langLabel, tagLabels, useTypeData } from '../typeData.tsx'
+import { groupTitle, isGrouped, langLabel, tagLabels, useTypeData } from '../typeData.tsx'
 import { OwnerLabel } from './OwnerDialog.tsx'
 import { Explanation, PayloadView } from './SubmissionCard.tsx'
 import { Badge, Empty, ErrorBox, Notice, Skeleton } from './ui.tsx'
@@ -121,7 +121,7 @@ function RevisionCard({ rev, onReload, onDone }: CardProps) {
     <article class="card rev-card" aria-label={`Edit of submission ${sub.id.slice(0, 8)}`} data-state={rev.state}>
       <header class="card-head">
         <Badge kind={STATE_BADGE[rev.state]}>{rev.state}</Badge>
-        <span class="card-group">{groupTitle(td, sub.groupId)}</span>
+        {isGrouped(td) && <span class="card-group">{groupTitle(td, sub.groupId)}</span>}
         <span class="hint">
           proposed by <OwnerLabel owner={rev.owner} />
         </span>
