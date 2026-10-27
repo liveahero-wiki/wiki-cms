@@ -127,10 +127,14 @@ adminRoutes.get('/me', requireSession, async (c) => {
   const [rows, pendingSubs, pendingEdits] = perm.length
     ? await Promise.all([
         db.select().from(submission_type_tab).where(inArray(submission_type_tab.id, perm)).all(),
+        // Both counts deliberately have no `type IN (…)` filter: with it SQLite starts from the type
+        // (a scan of every submission of the type, probing revisions for each) instead of the small
+        // set of pending rows (submission_state / submission_revision_state). The `types` rows are
+        // already limited to `perm`, so the other types' counts below are simply never read.
         db
           .select({ type: submission_tab.type, n: count() })
           .from(submission_tab)
-          .where(and(inArray(submission_tab.type, perm), eq(submission_tab.state, 'pending')))
+          .where(eq(submission_tab.state, 'pending'))
           .groupBy(submission_tab.type)
           .all(),
         // Same join as the revisions list; the revision table has no type column.
@@ -138,7 +142,7 @@ adminRoutes.get('/me', requireSession, async (c) => {
           .select({ type: submission_tab.type, n: count() })
           .from(submission_revision_tab)
           .innerJoin(submission_tab, eq(submission_tab.id, submission_revision_tab.submissionId))
-          .where(and(inArray(submission_tab.type, perm), eq(submission_revision_tab.state, 'pending')))
+          .where(eq(submission_revision_tab.state, 'pending'))
           .groupBy(submission_tab.type)
           .all(),
       ])
