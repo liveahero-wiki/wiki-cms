@@ -485,7 +485,7 @@ adminRoutes.patch('/submissions/:id', mod, async (c) => {
   }
   const before = { payload: row.payload, tags: row.tags, title: row.title, lang: row.lang, explanation: row.explanation, demoUrl: row.demoUrl, groupId: row.groupId }
   const changed = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== before[k])
-  if (changed.length === 0) return c.json({ item: toAdminRow(row), purgeWarning: null })
+  if (changed.length === 0) return c.json({ item: (await toAdminRows(getDb(c.env), [row]))[0], purgeWarning: null })
 
   const now = deps.now()
   const db = getDb(c.env)
@@ -529,7 +529,7 @@ adminRoutes.patch('/submissions/:id', mod, async (c) => {
     purgeWarning = purgeNote(await republishMany(c.env, row.type, rt, groups, deps.purge))
   }
   const fresh = await db.select().from(submission_tab).where(eq(submission_tab.id, row.id)).get()
-  return c.json({ item: toAdminRow(fresh!), purgeWarning })
+  return c.json({ item: (await toAdminRows(db, [fresh!]))[0], purgeWarning })
 })
 
 // ---- state transitions ----
@@ -542,7 +542,7 @@ adminRoutes.post('/submissions/:id/state', mod, async (c) => {
   const rt = await typeFor(c, row.type)
   if (rt instanceof Response) return rt
   if (body.expectedVersion !== row.version) return apiError(c, 409, 'version_conflict', 'Someone else changed this submission; reload it.')
-  if (row.state === body.state) return c.json({ item: toAdminRow(row), purgeWarning: null })
+  if (row.state === body.state) return c.json({ item: (await toAdminRows(getDb(c.env), [row]))[0], purgeWarning: null })
 
   const now = deps.now()
   const db = getDb(c.env)
@@ -590,7 +590,7 @@ adminRoutes.post('/submissions/:id/state', mod, async (c) => {
     purgeWarning = purgeNote(await republishMany(c.env, row.type, rt, [row.groupId], deps.purge))
   }
   const fresh = await db.select().from(submission_tab).where(eq(submission_tab.id, row.id)).get()
-  return c.json({ item: toAdminRow(fresh!), purgeWarning })
+  return c.json({ item: (await toAdminRows(db, [fresh!]))[0], purgeWarning })
 })
 
 adminRoutes.post('/submissions/bulk-state', mod, async (c) => {

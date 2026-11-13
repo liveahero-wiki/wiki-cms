@@ -377,6 +377,21 @@ describe('edit', () => {
   })
 })
 
+describe('moderation responses keep the owner', () => {
+  it('state changes and edits return the owner, not null', async () => {
+    const token = await contribLogin('own1', { displayName: 'Owner One' })
+    const id = await create(token)
+    const mod = await sessionCookie('mod', { types: [TYPE] })
+
+    const approved = await json(await admin(mod, 'POST', `/submissions/${id}/state`, { expectedVersion: 1, state: 'approved' }))
+    expect(approved.item.owner?.displayName).toBe('Owner One')
+    const noop = await json(await admin(mod, 'POST', `/submissions/${id}/state`, { expectedVersion: 2, state: 'approved' }))
+    expect(noop.item.owner?.displayName).toBe('Owner One')
+    const edited = await json(await admin(mod, 'PATCH', `/submissions/${id}`, { expectedVersion: 2, explanation: 'Edited by a moderator' }))
+    expect(edited.item.owner?.displayName).toBe('Owner One')
+  })
+})
+
 describe('legacy ownership and housekeeping', () => {
   it('moderator assigns an owner to a legacy anonymous submission, audited', async () => {
     const res = await h.fetch(`/api/v1/submissions/${TYPE}/quest-1`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.9' }, body: JSON.stringify(submitBody()) })
