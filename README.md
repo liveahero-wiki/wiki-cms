@@ -45,7 +45,7 @@ wiki-cms/
 │   ├── env.ts, config.ts   # bindings type; limits, retention, PUBLISH_REV
 │   ├── core/               # generic: app, routes/{public,admin,internal}, auth, db, publish, groups, ...
 │   ├── shared/             # code shared by Worker, embed and admin (no Worker-only APIs); plugin-api.ts is the plugin contract
-│   └── types/              # submission type definitions (TYPE_DEFS); lah-team-formation/ is the only one
+│   └── types/              # submission type definitions (TYPE_DEFS); lah-team-formation/ and housamo-team-formation/ are the team-formation ones
 ├── embed/                  # public embed (Vite): loader, list, form, i18n
 ├── admin/                  # admin SPA (Vite, Preact)
 ├── cli/                    # `cms` CLI (talks to D1 through wrangler)

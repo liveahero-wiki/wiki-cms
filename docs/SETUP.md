@@ -65,6 +65,31 @@ Open the link, sign in with Discord, and you are the first moderator.
 
 To require contributor accounts for submissions (the Team Creator does), set `cms type update lah-team-formation --submit-auth account` (add `--remote` for production). Do this **after** the wiki and embed that use the sign-in popup are live; until then the old anonymous form would get 401. Contributor sign-in uses the same Discord application as moderators (no new secrets); a Discord account must be 30 days old to become a contributor. `cms submission set-owner <submissionId> --user <contributorUserId|none>` (or the admin portal) assigns an owner to a legacy anonymous submission. Add `--remote` to every command to act on the production database.
 
+### Second wiki: `housamo-team-formation` (housamo-wiki)
+
+The same Worker serves a second type, `housamo-team-formation` (`src/types/housamo-team-formation/`), for housamo-wiki (`https://housamo-skill.netlify.app`, local folder `housamo-wiki`). It needs its own `type add` row, with that wiki's origins, plugin URL and groups registry (the registry has one group, `all`). The roster (`/api/team-roster.json`) is resolved against the type's groups URL, so it comes from housamo-wiki. The plugin URL below is the one the wiki is expected to publish; use whatever housamo-wiki's build actually emits. Run these yourself (nothing here was run):
+
+```bash
+# local
+node cli/cms.ts type add housamo-team-formation --name "Housamo team formation" \
+  --origins http://localhost:8080,https://housamo-skill.netlify.app \
+  --plugin-url http://localhost:8080/assets/housamo-team-formation.js \
+  --groups-url http://localhost:8080/api/cms-groups.json
+node cli/cms.ts type update housamo-team-formation --submit-auth account    # Discord account required
+node cli/cms.ts invite create --types housamo-team-formation
+
+# production (after pnpm deploy and the wiki deploy)
+node cli/cms.ts type add housamo-team-formation --remote \
+  --name "Housamo team formation" \
+  --origins https://housamo-skill.netlify.app \
+  --plugin-url https://housamo-skill.netlify.app/assets/housamo-team-formation.js \
+  --groups-url https://housamo-skill.netlify.app/api/cms-groups.json
+node cli/cms.ts type update housamo-team-formation --remote --submit-auth account
+node cli/cms.ts invite create --types housamo-team-formation --remote
+```
+
+Payload (`v: 1`): `cards` (2-6 slots in team order; `cardId`, `lv`, `slv`, `salv`, `lvSeed`, `skillSeed`, `hpSeed`, `atkSeed`, `equipId`, `equipLv`), `supportIndex` (mandatory, 1..cards.length-1, never slot 1), optional `guild` (`id` plus levels `atkDef`, `cp`, `proc`, `base`, each 0-10). Rules: `lv` max by rarity (1:50, 2:55, 3:60, 4:65, 5:70, default = max); `lvSeed` 0-20 and only above 0 at max `lv`; `slv`/`salv` 1-100 (default 100); `skillSeed` 0-10; `hpSeed`/`atkSeed` 0-2000; `equipLv` 1-100 (default 100, only with an equip); regular cards (everything except the support) may not share a character or an equipment, the support is exempt; an equip must satisfy its limits (`eligibility.ts`: OR over element, weapon, rarity `<=`, chara, guild, school, affiliation; no limits = anyone). Roster-dependent checks (unknown card/equip/guild, rarity-based `lv` max, `lvSeed` rule, equip eligibility, same-character) only run when the roster was fetched; without it `lv` is accepted up to 70 and duplicates are detected per `cardId` only. The client mirror lives in housamo-wiki (`web/cms-plugin/validate.ts`, `eligibility.ts`): same rules, error codes, paths and `params` (named like the plugin's i18n placeholders, `{id}` / `{max}`). Roster shape: `{ version, cards: [{ id, chara, rarity, element, weapon, guilds[], schools[], affils[], ... }], equips: [{ id, rarity, limits: [[type, value], ...], ... }], guilds: [{ id, ... }] }`.
+
 ## 2. Deploying
 
 ```bash

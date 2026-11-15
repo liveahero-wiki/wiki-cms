@@ -6,7 +6,7 @@ What the code cannot tell you: why it is shaped this way, the platform facts it 
 
 | Layer | Generic (reusable for another wiki) | Game-specific (LAH) |
 |---|---|---|
-| Worker | everything under `src/core/` | `src/types/lah-team-formation/` (validator, tags, explanation templates, limits), `src/types/lah-voice-tl/` and `lah-bio-tl/` (translation suggestions), registered in `src/types/index.ts` |
+| Worker | everything under `src/core/` | `src/types/lah-team-formation/` and `housamo-team-formation/` (validator, explanation templates, limits; the shared tags and fields come from `src/types/team-formation.ts`), `src/types/lah-voice-tl/` and `lah-bio-tl/` (translation suggestions), registered in `src/types/index.ts` |
 | Embed + admin UI | all of it | none: game UI comes from the plugin |
 | Per-type config (D1, via CLI) | `submission_type_tab` row: allowed origins, plugin URL, groups registry URL, enabled, Discord webhook | the values |
 | Wiki repo | none | plugin, roster JSON, groups registry JSON, page markup |
