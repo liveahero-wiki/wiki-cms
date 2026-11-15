@@ -44,6 +44,11 @@ export const MAX_LV_BY_RARITY: Readonly<Record<number, number>> = { 1: 50, 2: 55
 export const MAX_LV_ANY = 70
 export const maxLvOf = (rarity: number): number => MAX_LV_BY_RARITY[rarity] ?? MAX_LV_ANY
 
+export const MAX_SA_LV = 100
+/** SA Lv step by rarity: <= 3 any Lv, 4 -> 1, 6, 11, ... (step 5), 5 -> 1, 21, 41, ... (step 20); the max (100) is always allowed. */
+export const saLvStepOf = (rarity: number): number => (rarity >= 5 ? 20 : rarity === 4 ? 5 : 1)
+export const isSaLvAllowed = (rarity: number, v: number): boolean => v === MAX_SA_LV || (v - 1) % saLvStepOf(rarity) === 0
+
 /**
  * Every error code this validator can emit; keep the wiki plugin's messages in sync. The plugin translates these errors
  * with its own strings, so `params` are named like its placeholders (`{id}`, `{max}`, `{min}`, `{slots}`).
@@ -55,6 +60,7 @@ export const ERROR_CODES = [
   'card_id_invalid',
   'int_range',
   'lv_seed_needs_max_lv',
+  'sa_lv_step',
   'equip_id_invalid',
   'support_required',
   'support_out_of_range',
@@ -197,6 +203,12 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
       errors.push(err(`${p}.lvSeed`, 'lv_seed_needs_max_lv', `The level seed needs the card at its max level (${maxLv}).`, { max: maxLv }))
     }
 
+    const salv = readInt(errors, `${p}.salv`, raw.salv, MAX_SA_LV, 1, MAX_SA_LV)
+    // Higher rarities only reach some SA Lvs; checkable once the rarity is known.
+    if (known && !isSaLvAllowed(known.rarity, salv)) {
+      errors.push(err(`${p}.salv`, 'sa_lv_step', `The SA Lv must be 1 plus a multiple of ${saLvStepOf(known.rarity)}, or ${MAX_SA_LV}.`, { step: saLvStepOf(known.rarity), max: MAX_SA_LV }))
+    }
+
     let equipId: number | null = null
     if (raw.equipId !== undefined && raw.equipId !== null) {
       if (isInt(raw.equipId) && raw.equipId > 0) equipId = raw.equipId
@@ -216,7 +228,7 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
       cardId,
       lv,
       slv: readInt(errors, `${p}.slv`, raw.slv, 100, 1, 100),
-      salv: readInt(errors, `${p}.salv`, raw.salv, 100, 1, 100),
+      salv,
       lvSeed,
       skillSeed: readInt(errors, `${p}.skillSeed`, raw.skillSeed, 0, 0, 10),
       hpSeed: readInt(errors, `${p}.hpSeed`, raw.hpSeed, 0, 0, 2000),

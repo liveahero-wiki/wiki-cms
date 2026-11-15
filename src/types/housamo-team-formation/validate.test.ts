@@ -119,6 +119,19 @@ describe('per-card numbers', () => {
     const r = one({})
     expect(r.ok && r.value.cards[1]).toMatchObject({ slv: 100, salv: 100 })
   })
+  it('salv steps by rarity with the roster (any <= 3, step 5 for 4, step 20 for 5; 100 always)', () => {
+    const at = (id: number, salv: number) => codes(run(team([card(id, { salv }), card(4)]), roster))
+    for (const v of [1, 21, 41, 61, 81, 100]) expect(at(1, v), `r5 ${v}`).toEqual([])
+    for (const v of [2, 20, 22, 99]) expect(at(1, v), `r5 ${v}`).toEqual(['sa_lv_step'])
+    for (const v of [1, 6, 11, 96, 100]) expect(at(6, v), `r4 ${v}`).toEqual([])
+    for (const v of [2, 5, 97, 99]) expect(at(6, v), `r4 ${v}`).toEqual(['sa_lv_step'])
+    for (const v of [1, 2, 55, 99, 100]) expect(at(3, v), `r3 ${v}`).toEqual([])
+    for (const v of [1, 2, 99]) expect(at(5, v), `r2 ${v}`).toEqual([])
+    const r = run(team([card(1, { salv: 22 }), card(4)]), roster)
+    expect(!r.ok && r.errors.find((e) => e.code === 'sa_lv_step')).toMatchObject({ path: 'payload.cards.0.salv', params: { step: 20, max: 100 } })
+    // Without the roster the rarity is unknown: any 1..100 passes.
+    expect(codes(one({ salv: 22 }))).toEqual([])
+  })
   it('seeds: lvSeed 0..20, skillSeed 0..10, hp/atk 0..2000', () => {
     expect(one({ lvSeed: 20, skillSeed: 10, hpSeed: 2000, atkSeed: 2000 }).ok).toBe(true)
     expect(one({ lvSeed: 0, skillSeed: 0, hpSeed: 0, atkSeed: 0 }).ok).toBe(true)
