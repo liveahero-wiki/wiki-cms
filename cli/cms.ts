@@ -162,7 +162,7 @@ async function main(argv: string[]) {
       }
       const perHour = values['webhook-per-hour']
       if (perHour !== undefined) {
-        if (!/^[1-9]d{0,5}$/.test(perHour)) throw new UsageError('--webhook-per-hour must be a positive integer')
+        if (!/^[1-9]\d{0,5}$/.test(perHour)) throw new UsageError('--webhook-per-hour must be a positive integer')
         set('webhook_per_hour', sql`webhook_per_hour = ${Number(perHour)}`)
       }
       const submitAuth = values['submit-auth']
