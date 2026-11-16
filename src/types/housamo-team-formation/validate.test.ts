@@ -283,6 +283,34 @@ describe('guild', () => {
   })
 })
 
+describe('ring effect', () => {
+  it('is optional and absent from the value when unused (null too)', () => {
+    const r = run(team([card(1), card(2)]))
+    expect(r.ok).toBe(true)
+    if (r.ok) expect('ringEffect' in r.value.cards[0]).toBe(false)
+    const withNull = run(team([card(1, { ringEffect: null }), card(2)]))
+    expect(withNull.ok).toBe(true)
+    if (withNull.ok) expect('ringEffect' in withNull.value.cards[0]).toBe(false)
+  })
+  it('keeps each of the four effects, on regular and support cards', () => {
+    for (const ringEffect of ['hp', 'atk', 'proc', 'cp']) {
+      const r = run(team([card(1, { ringEffect }), card(2, { ringEffect })]))
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.value.cards.map((c) => c.ringEffect)).toEqual([ringEffect, ringEffect])
+    }
+  })
+  it('rejects anything else with ring_effect_invalid at the card', () => {
+    for (const bad of ['', 'HP', 'hp1000', 'bogus', 1, 0, true, {}, []]) {
+      const r = run(team([card(1), card(2, { ringEffect: bad })]))
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.errors.map((e) => `${e.path}:${e.code}`)).toEqual(['payload.cards.1.ringEffect:ring_effect_invalid'])
+    }
+  })
+  it('does not need the roster', () => {
+    expect(run(team([card(1, { ringEffect: 'cp' }), card(2)]), roster).ok).toBe(true)
+  })
+})
+
 describe('guild dispatch', () => {
   // Card 1 is in guild 3, card 3 in none; equip 103 needs guild 4.
   it('is optional and absent from the value when unused', () => {
@@ -370,7 +398,7 @@ describe('type def', () => {
       v: 1,
       supportIndex: 5,
       guild: { id: 24, atkDef: 10, cp: 10, proc: 10, base: 10 },
-      cards: Array.from({ length: 6 }, (_, i) => ({ cardId: 1000000 + i, lv: 70, slv: 100, salv: 100, lvSeed: 20, skillSeed: 10, hpSeed: 2000, atkSeed: 2000, equipId: 1000 + i, equipLv: 100 })),
+      cards: Array.from({ length: 6 }, (_, i) => ({ cardId: 1000000 + i, lv: 70, slv: 100, salv: 100, lvSeed: 20, skillSeed: 10, hpSeed: 2000, atkSeed: 2000, equipId: 1000 + i, equipLv: 100, dispatchGuild: 24, ringEffect: 'proc' })),
     }
     expect(JSON.stringify(full).length).toBeLessThan(def.maxPayloadBytes)
   })

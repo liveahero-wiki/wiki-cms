@@ -18,7 +18,14 @@ export interface TeamCard {
   equipLv?: number
   /** Guild dispatch: the card also counts as a member of this guild (widens its equips). Absent = none; never one of the card's own guilds. */
   dispatchGuild?: number
+  /** Ring effect. Absent = none. */
+  ringEffect?: RingEffect
 }
+
+/** The ring effects a card can carry (one at most): +1000 HP, +1000 ATK, +10% skill activation rate, +10 CP per turn. */
+export const RING_EFFECTS = ['hp', 'atk', 'proc', 'cp'] as const
+export type RingEffect = (typeof RING_EFFECTS)[number]
+const isRingEffect = (v: unknown): v is RingEffect => typeof v === 'string' && (RING_EFFECTS as readonly string[]).includes(v)
 
 export interface TeamGuild {
   id: number
@@ -75,6 +82,7 @@ export const ERROR_CODES = [
   'guild_invalid',
   'unknown_guild',
   'dispatch_same_guild',
+  'ring_effect_invalid',
 ] as const
 
 const err = (path: string, code: string, message: string, params?: FieldError['params']): FieldError => ({
@@ -225,6 +233,13 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
       } else errors.push(err(`${p}.dispatchGuild`, 'guild_invalid', 'Must be a positive integer.'))
     }
 
+    // Ring effect (optional): one of RING_EFFECTS.
+    let ringEffect: RingEffect | undefined
+    if (raw.ringEffect !== undefined && raw.ringEffect !== null) {
+      if (isRingEffect(raw.ringEffect)) ringEffect = raw.ringEffect
+      else errors.push(err(`${p}.ringEffect`, 'ring_effect_invalid', `Must be one of ${RING_EFFECTS.join(', ')}.`, { values: RING_EFFECTS.join(',') }))
+    }
+
     let equipId: number | null = null
     if (raw.equipId !== undefined && raw.equipId !== null) {
       if (isInt(raw.equipId) && raw.equipId > 0) equipId = raw.equipId
@@ -252,6 +267,7 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
       equipId,
       ...(equipLv !== undefined ? { equipLv } : {}),
       ...(dispatchGuild !== undefined ? { dispatchGuild } : {}),
+      ...(ringEffect !== undefined ? { ringEffect } : {}),
     })
   })
 
