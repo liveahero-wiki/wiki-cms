@@ -30,6 +30,7 @@ const roster = {
     { id: 100, rarity: 5, limits: [] },
     { id: 101, rarity: 5, limits: [[1, 1]] }, // element 1 only
     { id: 102, rarity: 4, limits: [[6, 10]] }, // chara 10 only
+    { id: 103, rarity: 4, limits: [[7, 4]] }, // guild 4 only
   ],
   guilds: [{ id: 3 }, { id: 4 }],
 }
@@ -279,6 +280,51 @@ describe('guild', () => {
     expect(codes(r)).toEqual(['unknown_guild'])
     expect(!r.ok && r.errors[0].path).toBe('payload.guild.id')
     expect(g({ id: 77 }).ok).toBe(true)
+  })
+})
+
+describe('guild dispatch', () => {
+  // Card 1 is in guild 3, card 3 in none; equip 103 needs guild 4.
+  it('is optional and absent from the value when unused', () => {
+    for (const none of [undefined, null]) {
+      const r = run(team([card(1, { dispatchGuild: none }), card(3)]), roster)
+      expect(r.ok && 'dispatchGuild' in r.value.cards[0]).toBe(false)
+    }
+  })
+  it('is kept on regular and support cards', () => {
+    const r = run(team([card(1, { dispatchGuild: 4 }), card(3, { dispatchGuild: 3 })]), roster)
+    expect(r.ok && r.value.cards.map((c) => c.dispatchGuild)).toEqual([4, 3])
+  })
+  it('must be a positive integer', () => {
+    for (const bad of [0, -1, 1.5, '4', {}]) {
+      const r = run(team([card(1, { dispatchGuild: bad }), card(3)]))
+      expect(codes(r), JSON.stringify(bad)).toEqual(['guild_invalid'])
+      expect(!r.ok && r.errors[0].path).toBe('payload.cards.0.dispatchGuild')
+    }
+  })
+  it('opens the guild-limited equips of that guild only', () => {
+    expect(codes(run(team([card(3, { equipId: 103 }), card(7)]), roster))).toEqual(['equip_not_allowed'])
+    expect(run(team([card(3, { equipId: 103, dispatchGuild: 4 }), card(7)]), roster).ok).toBe(true)
+    expect(codes(run(team([card(3, { equipId: 103, dispatchGuild: 3 }), card(7)]), roster))).toEqual(['equip_not_allowed'])
+    // other limit types are not widened
+    expect(codes(run(team([card(3, { equipId: 102, dispatchGuild: 4 }), card(7)]), roster))).toEqual(['equip_not_allowed'])
+  })
+  it('the support card can be dispatched too', () => {
+    expect(run(team([card(7), card(3, { equipId: 103, dispatchGuild: 4 })]), roster).ok).toBe(true)
+  })
+  it('cannot be a guild the card is already in', () => {
+    const r = run(team([card(1, { dispatchGuild: 3 }), card(3)]), roster)
+    expect(codes(r)).toEqual(['dispatch_same_guild'])
+    expect(!r.ok && r.errors[0].path).toBe('payload.cards.0.dispatchGuild')
+    expect(!r.ok && r.errors[0].params).toEqual({ id: 3 })
+  })
+  it('must be a known guild', () => {
+    const r = run(team([card(1, { dispatchGuild: 77 }), card(3)]), roster)
+    expect(codes(r)).toEqual(['unknown_guild'])
+    expect(!r.ok && r.errors[0].params).toEqual({ id: 77 })
+  })
+  it('the roster checks are skipped without the roster', () => {
+    expect(run(team([card(1, { dispatchGuild: 3 }), card(3, { dispatchGuild: 77 })])).ok).toBe(true)
   })
 })
 

@@ -16,6 +16,8 @@ export interface TeamCard {
   equipId: number | null
   /** Present exactly when `equipId` is not null. */
   equipLv?: number
+  /** Guild dispatch: the card also counts as a member of this guild (widens its equips). Absent = none; never one of the card's own guilds. */
+  dispatchGuild?: number
 }
 
 export interface TeamGuild {
@@ -72,6 +74,7 @@ export const ERROR_CODES = [
   'equip_not_allowed',
   'guild_invalid',
   'unknown_guild',
+  'dispatch_same_guild',
 ] as const
 
 const err = (path: string, code: string, message: string, params?: FieldError['params']): FieldError => ({
@@ -209,6 +212,19 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
       errors.push(err(`${p}.salv`, 'sa_lv_step', `The SA Lv must be 1 plus a multiple of ${saLvStepOf(known.rarity)}, or ${MAX_SA_LV}.`, { step: saLvStepOf(known.rarity), max: MAX_SA_LV }))
     }
 
+    // Guild dispatch (optional).
+    let dispatchGuild: number | undefined
+    if (raw.dispatchGuild !== undefined && raw.dispatchGuild !== null) {
+      if (isInt(raw.dispatchGuild) && raw.dispatchGuild > 0) {
+        dispatchGuild = raw.dispatchGuild
+        if (roster.guilds && !roster.guilds.has(dispatchGuild)) {
+          errors.push(err(`${p}.dispatchGuild`, 'unknown_guild', 'Unknown guild.', { id: dispatchGuild }))
+        } else if (known && known.guilds.includes(dispatchGuild)) {
+          errors.push(err(`${p}.dispatchGuild`, 'dispatch_same_guild', 'The card is already in this guild.', { id: dispatchGuild }))
+        }
+      } else errors.push(err(`${p}.dispatchGuild`, 'guild_invalid', 'Must be a positive integer.'))
+    }
+
     let equipId: number | null = null
     if (raw.equipId !== undefined && raw.equipId !== null) {
       if (isInt(raw.equipId) && raw.equipId > 0) equipId = raw.equipId
@@ -219,7 +235,7 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
     if (equipId !== null && roster.equips) {
       const equip = roster.equips.get(equipId)
       if (!equip) errors.push(err(`${p}.equipId`, 'unknown_equip', 'Unknown equipment.', { id: equipId }))
-      else if (known && !equipAllowed(equip, known)) {
+      else if (known && !equipAllowed(equip, known, dispatchGuild)) {
         errors.push(err(`${p}.equipId`, 'equip_not_allowed', 'This card cannot wear this equipment.', { id: equipId }))
       }
     }
@@ -235,6 +251,7 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
       atkSeed: readInt(errors, `${p}.atkSeed`, raw.atkSeed, 0, 0, 2000),
       equipId,
       ...(equipLv !== undefined ? { equipLv } : {}),
+      ...(dispatchGuild !== undefined ? { dispatchGuild } : {}),
     })
   })
 

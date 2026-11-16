@@ -18,8 +18,11 @@ export interface CardLike {
   affils: readonly number[]
 }
 
-/** Limit types: 1 element, 2 weapon, 5 rarity (card.rarity <= value), 6 chara, 7 guild, 8 school, 9 affiliation. */
-export function equipAllowed(equip: EquipLike, card: CardLike): boolean {
+/**
+ * Limit types: 1 element, 2 weapon, 5 rarity (card.rarity <= value), 6 chara, 7 guild, 8 school, 9 affiliation.
+ * `dispatchGuild`: the guild the card is dispatched to; it counts as one more guild of the card for the guild limit only.
+ */
+export function equipAllowed(equip: EquipLike, card: CardLike, dispatchGuild?: number | null): boolean {
   if (equip.limits.length === 0) return true
   return equip.limits.some(([type, value]) => {
     switch (type) {
@@ -32,7 +35,7 @@ export function equipAllowed(equip: EquipLike, card: CardLike): boolean {
       case 6:
         return card.chara === value
       case 7:
-        return card.guilds.includes(value)
+        return card.guilds.includes(value) || dispatchGuild === value
       case 8:
         return card.schools.includes(value)
       case 9:
