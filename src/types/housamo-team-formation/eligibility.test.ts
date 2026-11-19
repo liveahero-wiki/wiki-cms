@@ -30,6 +30,9 @@ describe('equipAllowed', () => {
     expect(equipAllowed(limits([8, 6]), card({ schools: [] }))).toBe(false)
     expect(equipAllowed(limits([9, 7]), card())).toBe(true)
     expect(equipAllowed(limits([9, 8]), card())).toBe(false)
+    // Master_Equip affiliation ids carry a 1000 offset
+    expect(equipAllowed(limits([9, 1007]), card())).toBe(true)
+    expect(equipAllowed(limits([9, 1008]), card())).toBe(false)
   })
   it('limits are OR-ed', () => {
     expect(equipAllowed(limits([1, 9], [6, 10]), card())).toBe(true)

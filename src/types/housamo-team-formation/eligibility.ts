@@ -39,7 +39,8 @@ export function equipAllowed(equip: EquipLike, card: CardLike, dispatchGuild?: n
       case 8:
         return card.schools.includes(value)
       case 9:
-        return card.affils.includes(value)
+        // Master_Equip writes affiliation ids with a 1000 offset (1009), cards use the plain id (9).
+        return card.affils.includes(value % 1000)
       default:
         return false
     }
