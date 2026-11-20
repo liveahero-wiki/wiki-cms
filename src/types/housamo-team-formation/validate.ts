@@ -41,6 +41,8 @@ export interface TeamPayload {
   cards: TeamCard[]
   supportIndex: number
   guild?: TeamGuild | null
+  /** Master_Quest id of the battle the team is built for. Absent = general purpose. */
+  target?: number | null
 }
 
 export const MAX_REGULAR = 5
@@ -83,6 +85,8 @@ export const ERROR_CODES = [
   'unknown_guild',
   'dispatch_same_guild',
   'ring_effect_invalid',
+  'target_invalid',
+  'unknown_target',
 ] as const
 
 const err = (path: string, code: string, message: string, params?: FieldError['params']): FieldError => ({
@@ -123,12 +127,13 @@ interface ParsedRoster {
   cards: Map<number, RosterCard> | null
   equips: Map<number, RosterEquip> | null
   guilds: Set<number> | null
+  targets: Set<number> | null
 }
 
 const intList = (v: unknown): number[] => (Array.isArray(v) ? v.filter(isInt) : [])
 
 function parseRoster(roster: unknown): ParsedRoster {
-  const out: ParsedRoster = { cards: null, equips: null, guilds: null }
+  const out: ParsedRoster = { cards: null, equips: null, guilds: null, targets: null }
   if (!isObj(roster)) return out
   if (Array.isArray(roster.cards)) {
     const m = new Map<number, RosterCard>()
@@ -162,6 +167,11 @@ function parseRoster(roster: unknown): ParsedRoster {
     const s = new Set<number>()
     for (const e of roster.guilds as unknown[]) if (isObj(e) && isInt(e.id)) s.add(e.id)
     if (s.size) out.guilds = s
+  }
+  if (Array.isArray(roster.targets)) {
+    const s = new Set<number>()
+    for (const e of roster.targets as unknown[]) if (isObj(e) && isInt(e.id)) s.add(e.id)
+    if (s.size) out.targets = s
   }
   return out
 }
@@ -313,6 +323,15 @@ export function validateTeamPayload(input: unknown, _group: GroupInfo, ctx: Vali
     }
   }
 
+  // Target battle (optional): a Master_Quest id, checked against the roster's curated `targets` when it has any.
+  let target: number | undefined
+  const rawTarget = input.target
+  if (rawTarget !== undefined && rawTarget !== null) {
+    if (!isInt(rawTarget) || rawTarget <= 0) errors.push(err('payload.target', 'target_invalid', 'Must be a positive integer.'))
+    else if (roster.targets && !roster.targets.has(rawTarget)) errors.push(err('payload.target', 'unknown_target', 'Unknown battle.', { id: rawTarget }))
+    else target = rawTarget
+  }
+
   if (errors.length) return { ok: false, errors }
-  return { ok: true, value: { v: 1, cards, supportIndex, ...(guild ? { guild } : {}) } }
+  return { ok: true, value: { v: 1, cards, supportIndex, ...(guild ? { guild } : {}), ...(target !== undefined ? { target } : {}) } }
 }

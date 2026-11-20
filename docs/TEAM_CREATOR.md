@@ -78,3 +78,7 @@ Operational commands are in [SETUP.md](SETUP.md#team-creator-rollout-one-off). A
 ## Accounts and edits
 
 Team submissions require a contributor account (`submit_auth = 'account'`): sign in with Discord (account at least 30 days old) through the popup, then submit. The submitter sees their own teams (including not-yet-public ones) under **My submissions** on the Team Creator page and can **edit** them; an edit of a published team is a pending revision that a moderator approves or rejects (with an optional reason shown to the submitter) while the published version stays live. Legacy anonymous submissions have no owner; a moderator can assign one on request (admin portal or `cms submission set-owner`). Design and security notes: [ARCHITECTURE.md](ARCHITECTURE.md#contributor-accounts). The public blob is unchanged (no owner or revision data).
+
+## Housamo (`housamo-team-formation`)
+
+- `payload.target` is optional: the Master_Quest id (positive integer) of the battle the team is built for; absent = general purpose. The allowed ids come from the roster's `targets` (`api/team-roster.json` in housamo-wiki, curated in its `_data/wiki/TeamTargets.yml`; retired entries stay valid), checked like `guild.id` against `guilds`: lenient without a roster or without `targets`. Deploy this Worker before the wiki client sends the field (an older Worker silently drops unknown payload fields).

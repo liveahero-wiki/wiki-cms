@@ -33,6 +33,10 @@ const roster = {
     { id: 103, rarity: 4, limits: [[7, 4]] }, // guild 4 only
   ],
   guilds: [{ id: 3 }, { id: 4 }],
+  targets: [
+    { id: 20067, name: { en: 'Battle' }, icons: [] },
+    { id: 20001, name: { en: 'Old battle' }, icons: [], retired: true },
+  ],
 }
 
 describe('payload basics', () => {
@@ -280,6 +284,40 @@ describe('guild', () => {
     expect(codes(r)).toEqual(['unknown_guild'])
     expect(!r.ok && r.errors[0].path).toBe('payload.guild.id')
     expect(g({ id: 77 }).ok).toBe(true)
+  })
+})
+
+describe('target', () => {
+  const t = (target: unknown, rost?: unknown) => run(team([card(1), card(3)], { target }), rost)
+  it('is optional and absent from the value when unused (null too)', () => {
+    for (const v of [undefined, null]) {
+      const r = t(v, roster)
+      expect(r.ok).toBe(true)
+      expect(r.ok && 'target' in r.value).toBe(false)
+    }
+  })
+  it('keeps a listed id, retired ones included', () => {
+    expect(t(20067, roster)).toMatchObject({ ok: true, value: { target: 20067 } })
+    expect(t(20001, roster)).toMatchObject({ ok: true, value: { target: 20001 } })
+  })
+  it('rejects an unlisted id', () => {
+    const r = t(99999, roster)
+    expect(codes(r)).toEqual(['unknown_target'])
+    expect(!r.ok && r.errors[0]).toMatchObject({ path: 'payload.target', params: { id: 99999 } })
+    // after the card errors, in the wiki client's order
+    expect(codes(run(team([card(999), card(3)], { target: 99999 }), roster))).toEqual(['unknown_card', 'unknown_target'])
+  })
+  it('accepts any positive integer without a roster or without targets', () => {
+    expect(t(99999)).toMatchObject({ ok: true, value: { target: 99999 } })
+    expect(t(99999, { ...roster, targets: undefined })).toMatchObject({ ok: true, value: { target: 99999 } })
+    expect(t(99999, { ...roster, targets: [] })).toMatchObject({ ok: true, value: { target: 99999 } })
+  })
+  it('rejects malformed values', () => {
+    for (const bad of [0, -1, 1.5, '20067', {}]) {
+      const r = t(bad, roster)
+      expect(codes(r), JSON.stringify(bad)).toEqual(['target_invalid'])
+      expect(!r.ok && r.errors[0].path).toBe('payload.target')
+    }
   })
 })
 
