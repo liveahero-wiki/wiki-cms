@@ -147,10 +147,41 @@ function Sidebar({ me, path, search }: { me: MeResponse; path: string; search: s
   )
 }
 
+/** Keep in sync with the `@media (max-width: 900px)` sidebar rule in styles.css. */
+const NARROW_QUERY = '(max-width: 900px)'
+
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW_QUERY).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_QUERY)
+    const update = () => setNarrow(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return narrow
+}
+
+function MenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  )
+}
+
 export function Layout({ me, children }: { me: MeResponse; children: ComponentChildren }) {
   const { path, search } = useLocation()
   const [open, setOpen] = useState(false)
-  useEffect(() => setOpen(false), [path, search])
+  const narrow = useNarrow()
+  const wrapRef = useRef<HTMLDivElement>(null)
+  // The sidebar is a plain column on wide screens. On narrow ones it becomes an
+  // auto popover (top layer, backdrop, light dismiss, Escape, focus restore).
+  // Links inside do not dismiss it, so close it when the route changes.
+  useEffect(() => {
+    const el = wrapRef.current
+    if (el?.matches(':popover-open')) el.hidePopover()
+  }, [path, search])
   const hasTypes = me.types.length > 0
   return (
     <div class="app">
@@ -159,8 +190,8 @@ export function Layout({ me, children }: { me: MeResponse; children: ComponentCh
       </a>
       <header class="topbar">
         {hasTypes && (
-          <button type="button" class="btn nav-toggle" aria-expanded={open} aria-controls="sidebar-wrap" onClick={() => setOpen((v) => !v)}>
-            Menu
+          <button type="button" class="btn nav-toggle" aria-label="Menu" aria-expanded={open} aria-controls="sidebar-wrap" popovertarget="sidebar-wrap">
+            <MenuIcon />
           </button>
         )}
         <Link href="/" class="brand">
@@ -172,7 +203,13 @@ export function Layout({ me, children }: { me: MeResponse; children: ComponentCh
       </header>
       <div class={`shell${hasTypes ? '' : ' shell-single'}`}>
         {hasTypes && (
-          <div id="sidebar-wrap" class={`sidebar-wrap${open ? ' open' : ''}`}>
+          <div
+            id="sidebar-wrap"
+            class="sidebar-wrap"
+            ref={wrapRef}
+            popover={narrow ? 'auto' : undefined}
+            onToggle={(e) => setOpen(e.currentTarget.matches(':popover-open'))}
+          >
             <Sidebar me={me} path={path} search={search} />
           </div>
         )}
